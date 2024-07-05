@@ -8,7 +8,7 @@
   "linker": "rust-lld",
   "linker-flavor": "gnu-lld",
   "pre-link-args": {
-    "gnu-lld": ["-shared"]
+    "gnu-lld": ["-pie", "--no-dynamic-linker"]
   },
   "llvm-target": "mipsel-unknown-none",
   "max-atomic-width": 32,
