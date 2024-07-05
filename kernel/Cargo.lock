@@ -3,5 +3,9 @@
 version = 3
 
 [[package]]
-name = "kernel"
+name = "core"
+version = "0.1.0"
+
+[[package]]
+name = "xtask"
 version = "0.1.0"
