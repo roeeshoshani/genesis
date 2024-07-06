@@ -19,9 +19,8 @@ extern "C" {
 }
 
 /// the entrypoint of the shellcode loader.
-///
-/// this must be the first function defined in this file, so that it will be placed at offset 0.
 #[no_mangle]
+#[link_section = ".text.loader_entrypoint"]
 unsafe extern "C" fn _start() {
     let end_of_code_ptr = addr_of_mut!(END_OF_CODE);
     let mut cursor = Cursor::new(end_of_code_ptr);

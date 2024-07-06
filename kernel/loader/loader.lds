@@ -4,6 +4,7 @@ SECTIONS
 {
     . = 0;
     .text : {
+        *(.text.loader_entrypoint)
         *(.text) *(.text.*)
     }
     END_OF_CODE = .;
