@@ -4,4 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+intbits = "0.2.0"
 loader_shared = { path = "../loader_shared" }

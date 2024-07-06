@@ -1,8 +1,13 @@
 #![no_std]
 #![no_main]
 #![feature(asm_experimental_arch)]
+#![feature(asm_const)]
 
-use core::{arch::global_asm, panic::PanicInfo, ptr::addr_of_mut};
+use core::{
+    arch::{asm, global_asm},
+    panic::PanicInfo,
+    ptr::addr_of_mut,
+};
 
 use loader_shared::LoaderInfoHeader;
 
@@ -23,10 +28,11 @@ extern "C" {
 global_asm!(include_str!("boot.S"));
 
 /// the entrypoint of the shellcode loader.
-/// this must be the first function defined right after the include of the `boot.S` file.
 #[no_mangle]
 #[link_section = ".text.boot"]
 unsafe extern "C" fn loader_entrypoint() {
+    initialize_cache();
+
     let end_of_code_ptr =
         get_reference_point_addr().add(addr_of_mut!(REFERENCE_POINT_OFFSET_FROM_END) as usize);
     let mut cursor = Cursor::new(end_of_code_ptr);
@@ -59,6 +65,53 @@ unsafe extern "C" fn loader_entrypoint() {
     let entrypoint: Entrypoint =
         core::mem::transmute(kernel_dst_addr.add(info.entry_point_offset as usize));
     entrypoint()
+}
+
+const CP0_CONFIG: usize = 16;
+const CACHE_OP_INDEX_INVALIDATE_I: usize = 0;
+const CACHE_OP_INDEX_WRITEBACK_INVALIDATE_D: usize = 1;
+const CACHE_OP_INDEX_WRITEBACK_INVALIDATE_S: usize = 3;
+
+macro_rules! read_cp0_reg {
+    ($reg_index: expr, $select: expr) => {
+        {
+            let reg_value: u32;
+            unsafe {
+                asm!(
+                    ".set noat",
+                    "mfc0 {res}, ${reg_index}, {select}",
+                    ".set at",
+                    res = out(reg) reg_value,
+                    reg_index = const $reg_index,
+                    select = const $select,
+                );
+            }
+            reg_value
+        }
+
+    };
+}
+
+macro_rules! cache_insn {
+    ($op: expr, $offset: expr) => {
+        unsafe {
+            asm!(
+                ".set noat",
+                "cache {op}, 0({offset})",
+                ".set at",
+                op = const $op,
+                offset = in(reg) ($offset)
+            )
+        }
+    };
+}
+
+fn read_cp0_config() -> u32 {
+    read_cp0_reg!(CP0_CONFIG, 0)
+}
+
+fn initialize_cache() {
+    let mmu_type: usize = read_cp0_config();
 }
 
 global_asm!(
