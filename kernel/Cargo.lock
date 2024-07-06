@@ -87,6 +87,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitflags"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b048fb63fd8b5923fc5aa7b340d8e156aec7ec02f0c78fa8a6ddc2613f6f71de"
+
+[[package]]
 name = "clap"
 version = "4.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -146,6 +152,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "elflib"
+version = "0.1.5"
+dependencies = [
+ "binary_serde",
+ "bitflags",
+ "elflib_macros",
+ "paste",
+ "thiserror-no-std",
+]
+
+[[package]]
+name = "elflib_macros"
+version = "0.1.5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.68",
+]
+
+[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -162,6 +188,12 @@ name = "log"
 version = "0.4.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
+
+[[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "proc-macro2"
@@ -328,4 +360,5 @@ dependencies = [
  "binary_serde",
  "clap",
  "devx-cmd",
+ "elflib",
 ]

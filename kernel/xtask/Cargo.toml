@@ -8,3 +8,4 @@ anyhow = "1.0.86"
 binary_serde = { version = "1.0.24", features = ["std"] }
 clap = { version = "4.5.8", features = ["derive"] }
 devx-cmd = "0.5.0"
+elflib = { path = "../../../elflib", features = ["std"] }
