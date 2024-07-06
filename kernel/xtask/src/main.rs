@@ -1,3 +1,5 @@
+use std::os::unix::process::CommandExt;
+
 use anyhow::{bail, Context, Result};
 use binary_serde::{BinarySerde, BinarySerializerToVec};
 use clap::Parser;
@@ -28,12 +30,11 @@ fn main_fallible() -> Result<()> {
 }
 
 fn gdb() -> Result<()> {
-    std::process::Command::new("gdb-multiarch")
+    let error = std::process::Command::new("gdb-multiarch")
         .arg("-x")
         .arg("gdb_script")
-        .spawn()?
-        .wait()?;
-    Ok(())
+        .exec();
+    Err(error).context("failed to run gdb command")
 }
 
 fn run() -> Result<()> {
@@ -52,11 +53,24 @@ fn run() -> Result<()> {
 fn build() -> Result<()> {
     let loader_code = build_and_extract_loader_code()?;
     let packed_kelf_content = build_and_pack_kelf_content(&loader_code)?;
+    let post_processed_content = post_process_packed_kelf_content(packed_kelf_content);
     let packed_kernel_path = "target/target/debug/kernel";
-    std::fs::write(packed_kernel_path, packed_kelf_content).context(format!(
+    std::fs::write(packed_kernel_path, post_processed_content).context(format!(
         "failed to write packed kernel file {packed_kernel_path}"
     ))?;
     Ok(())
+}
+
+fn post_process_packed_kelf_content(mut content: Vec<u8>) -> Vec<u8> {
+    // for some reason, when passing the kernel image using the `-bios` flag to `qemu`, it decides to swap the endianness
+    // of every 4 bytes of the image. to undo this effect, we swap the bytes ourselves.
+    buf_align_len(&mut content, 4);
+    for chunk in content.chunks_mut(4) {
+        let value = u32::from_le_bytes(chunk.try_into().unwrap());
+        let swapped_bytes = value.to_be_bytes();
+        chunk.copy_from_slice(&swapped_bytes);
+    }
+    content
 }
 
 fn build_and_pack_kelf_content(loader_code: &[u8]) -> Result<Vec<u8>> {
