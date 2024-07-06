@@ -1,0 +1,9 @@
+set architecture mips
+set endian little 
+
+define hook-stop
+x/4i $pc
+end
+
+target remote localhost:1234
+

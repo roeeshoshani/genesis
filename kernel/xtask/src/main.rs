@@ -8,18 +8,44 @@ use loader_shared::LoaderInfoHeader;
 #[derive(Parser)]
 enum Cli {
     Build,
+    Run,
+    Gdb,
 }
 fn main() {
-    if let Err(err) = run() {
+    if let Err(err) = main_fallible() {
         eprintln!("error: {:#?}", err);
     }
 }
 
-fn run() -> Result<()> {
+fn main_fallible() -> Result<()> {
     let cli = Cli::parse();
     match cli {
         Cli::Build => build()?,
+        Cli::Run => run()?,
+        Cli::Gdb => gdb()?,
     }
+    Ok(())
+}
+
+fn gdb() -> Result<()> {
+    std::process::Command::new("gdb-multiarch")
+        .arg("-x")
+        .arg("gdb_script")
+        .spawn()?
+        .wait()?;
+    Ok(())
+}
+
+fn run() -> Result<()> {
+    build()?;
+    run!(
+        "qemu-system-mipsel",
+        "-bios",
+        "target/target/debug/kernel",
+        "-S",
+        "-s",
+        "--nographic"
+    )?;
     Ok(())
 }
 
