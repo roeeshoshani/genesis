@@ -8,6 +8,7 @@
   "linker": "rust-lld",
   "linker-flavor": "gnu-lld",
   "llvm-target": "mipsel-unknown-none",
+  "code-model": "small",
   "max-atomic-width": 32,
   "metadata": {
     "description": null,

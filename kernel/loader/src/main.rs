@@ -20,10 +20,12 @@ extern "C" {
     fn get_reference_point_addr() -> *mut u8;
 }
 
+global_asm!(include_str!("boot.S"));
+
 /// the entrypoint of the shellcode loader.
 #[no_mangle]
-#[link_section = ".text.loader_entrypoint"]
-unsafe extern "C" fn _start() {
+#[link_section = ".text.boot"]
+unsafe extern "C" fn loader_entrypoint() {
     let end_of_code_ptr =
         get_reference_point_addr().add(addr_of_mut!(REFERENCE_POINT_OFFSET_FROM_END) as usize);
     let mut cursor = Cursor::new(end_of_code_ptr);
@@ -60,7 +62,7 @@ global_asm!(
     // save the old return address
     "move $t0, $ra",
     // jump and link to the reference point, so that `ra` will contain the address of that label
-    "jal reference_point",
+    "bal reference_point",
     // define the reference point
     ".globl reference_point",
     "reference_point:",

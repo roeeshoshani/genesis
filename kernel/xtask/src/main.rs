@@ -50,20 +50,9 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-fn concat_vecs<T>(mut a: Vec<T>, mut b: Vec<T>) -> Vec<T> {
-    a.append(&mut b);
-    a
-}
-
 fn build() -> Result<()> {
     // build and pack the kernel elf into a shellcode
-    let packed_kelf_content = build_and_pack_kelf_content()?;
-
-    // build the boot code
-    let boot_code = build_and_extract_boot_code()?;
-
-    // concat the boot code with the packed kernel elf.
-    let kernel_content = concat_vecs(boot_code, packed_kelf_content);
+    let kernel_content = build_and_pack_kelf_content()?;
 
     // write the pre post-processing content
     let pre_post_processing_kernel_path = "target/target/debug/pre_post_processing_kernel";
@@ -116,20 +105,6 @@ fn build_and_extract_loader_code() -> Result<Vec<u8>> {
     Ok(get_first_phdr_content(&loader_elf_content)
         .context(format!(
             "failed to extract loader code from loader elf file {loader_elf_path}"
-        ))?
-        .to_vec())
-}
-
-fn build_and_extract_boot_code() -> Result<Vec<u8>> {
-    // build the loader. this must be done in release mode so that the compiler will optimize everything out and we are only left
-    // with a .text section. if we don't do this we get a whole bunch of extra sections due to linking with rust's stdlib.
-    cmd!("cargo", "build").current_dir("boot").run()?;
-    let boot_elf_path = "target/target/debug/boot";
-    let boot_elf_content = std::fs::read(boot_elf_path)
-        .context(format!("failed to read boot elf file {boot_elf_path}"))?;
-    Ok(get_first_phdr_content(&boot_elf_content)
-        .context(format!(
-            "failed to extract boot code from boot elf file {boot_elf_path}"
         ))?
         .to_vec())
 }

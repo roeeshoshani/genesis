@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
-members = [ "boot",
-    "core", "loader", "loader_shared",
+members = [
+    "core",
+    "loader",
+    "loader_shared",
     "xtask",
 ]

@@ -1,3 +1,0 @@
-[language-server.rust-analyzer.config]
-check.allTargets = false
-
