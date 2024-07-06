@@ -7,7 +7,7 @@ SECTIONS
         *(.text.loader_entrypoint)
         *(.text) *(.text.*)
     } :code
-    END_OF_CODE = .;
+    REFERENCE_POINT_OFFSET_FROM_END = . - reference_point;
 
     /DISCARD/ : {
         *(.eh_frame)

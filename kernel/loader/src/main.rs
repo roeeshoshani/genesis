@@ -1,7 +1,8 @@
 #![no_std]
 #![no_main]
+#![feature(asm_experimental_arch)]
 
-use core::{panic::PanicInfo, ptr::addr_of_mut};
+use core::{arch::global_asm, panic::PanicInfo, ptr::addr_of_mut};
 
 use loader_shared::LoaderInfoHeader;
 
@@ -15,14 +16,16 @@ struct EncodedRel {
 pub type Entrypoint = unsafe extern "C" fn();
 
 extern "C" {
-    static mut END_OF_CODE: u8;
+    static mut REFERENCE_POINT_OFFSET_FROM_END: u8;
+    fn get_reference_point_addr() -> *mut u8;
 }
 
 /// the entrypoint of the shellcode loader.
 #[no_mangle]
 #[link_section = ".text.loader_entrypoint"]
 unsafe extern "C" fn _start() {
-    let end_of_code_ptr = addr_of_mut!(END_OF_CODE);
+    let end_of_code_ptr =
+        get_reference_point_addr().add(addr_of_mut!(REFERENCE_POINT_OFFSET_FROM_END) as usize);
     let mut cursor = Cursor::new(end_of_code_ptr);
     let info = cursor.align_and_extract_struct::<LoaderInfoHeader>();
 
@@ -50,6 +53,22 @@ unsafe extern "C" fn _start() {
         core::mem::transmute(wrapped_code_ptr.add(info.entry_point_offset as usize));
     entrypoint()
 }
+
+global_asm!(
+    ".globl get_reference_point_addr",
+    "get_reference_point_addr:",
+    // save the old return address
+    "move $t0, $ra",
+    // jump and link to the reference point, so that `ra` will contain the address of that label
+    "jal reference_point",
+    // define the reference point
+    ".globl reference_point",
+    "reference_point:",
+    // put the address of the reference point, which is now in `ra`, as the return value
+    "move $v0, $ra",
+    // return to the caller
+    "jr $t0",
+);
 
 #[panic_handler]
 fn panic(_: &PanicInfo) -> ! {
