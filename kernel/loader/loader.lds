@@ -2,9 +2,11 @@ ENTRY(_start)
 
 SECTIONS
 {
+    . = 0;
     .text : {
         *(.text) *(.text.*)
     }
+    END_OF_CODE = .;
 
     .rodata : {
         *(.rodata)

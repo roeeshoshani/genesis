@@ -1,0 +1,10 @@
+[package]
+name = "loader_shared"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+binary_serde = "1.0.24"
+
+[features]
+std = ["binary_serde/std"]
