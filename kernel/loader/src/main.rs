@@ -27,24 +27,25 @@ unsafe extern "C" fn _start() {
     let mut cursor = Cursor::new(end_of_code_ptr);
     let info = cursor.align_and_extract_struct::<LoaderInfoHeader>();
 
-    // find the address of the wrapped code by skipping the entire loader info
-    let wrapped_code_ptr = end_of_code_ptr.add(info.loader_info_total_size as usize);
-
-    // fill the uninitialized memory with zeroes.
-    let uninitialized_data_ptr = wrapped_code_ptr.add(info.initialized_size as usize);
-    let uninitialized_data =
-        core::slice::from_raw_parts(uninitialized_data_ptr, info.uninitialized_size as usize);
-    uninitialized_data.fill(0);
-
-    // parse and apply relocations
+    // parse the relocations
     let relocations =
         cursor.align_and_extract_slice::<EncodedRel>(info.relocations_amount as usize);
+
+    // right after the relocation information comes the wrapped code.
+    let wrapped_code_ptr = cursor.cur_ptr;
+
     for relocation in relocations {
         let relocated_value = &mut *wrapped_code_ptr.add(relocation.offset).cast::<usize>();
 
         // to apply the relocation, just add the code address to the memory location.
         *relocated_value += wrapped_code_ptr as usize;
     }
+
+    // fill the uninitialized memory with zeroes.
+    let uninitialized_data_ptr = wrapped_code_ptr.add(info.initialized_size as usize);
+    let uninitialized_data =
+        core::slice::from_raw_parts_mut(uninitialized_data_ptr, info.uninitialized_size as usize);
+    uninitialized_data.fill(0);
 
     let entrypoint: Entrypoint =
         core::mem::transmute(wrapped_code_ptr.add(info.entry_point_offset as usize));

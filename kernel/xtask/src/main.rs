@@ -3,6 +3,7 @@ use binary_serde::{BinarySerde, BinarySerializerToVec};
 use clap::Parser;
 use devx_cmd::{cmd, run, Cmd};
 use elflib::{ArchBitLength, ElfParser, Rel, RelocationType, SectionData, SectionHeaderType};
+use loader_shared::LoaderInfoHeader;
 
 #[derive(Parser)]
 enum Cli {
@@ -35,6 +36,12 @@ fn pack_kelf_file(kelf_content: &[u8]) -> Result<()> {
     let elf = ElfParser::new(kelf_content)?;
     let phdrs_info = process_elf_phdrs(&elf)?;
     let rels_info = process_elf_relocs(&elf)?;
+    let loader_info = LoaderInfoHeader {
+        relocations_amount: rels_info.encoded_rels_amount as u32,
+        initialized_size: phdrs_info.full_content.len() as u32,
+        uninitialized_size: phdrs_info.uninitialized_size as u32,
+        entry_point_offset: todo!(),
+    };
     println!("{:?}", rels_info);
     Ok(())
 }
@@ -42,7 +49,7 @@ fn pack_kelf_file(kelf_content: &[u8]) -> Result<()> {
 fn process_elf_phdrs(elf: &ElfParser) -> Result<PhdrsInfo> {
     let mut full_content = Vec::new();
     let phdrs = elf.program_headers()?;
-    let mut padding_size = 0;
+    let mut uninitialized_size = 0;
 
     // make sure that the first phdr starts at address 0
     if phdrs.get(0)?.virt_addr() != 0 {
@@ -68,12 +75,12 @@ fn process_elf_phdrs(elf: &ElfParser) -> Result<PhdrsInfo> {
                     phdr_idx
                 );
             }
-            padding_size = (phdr.size_in_memory() - phdr.size_in_file()) as usize;
+            uninitialized_size = (phdr.size_in_memory() - phdr.size_in_file()) as usize;
         }
     }
     Ok(PhdrsInfo {
         full_content,
-        padding_size,
+        uninitialized_size,
     })
 }
 
@@ -160,5 +167,5 @@ struct PhdrsInfo {
     full_content: Vec<u8>,
 
     /// the size of the uninitialized data at the end of the initialized content.
-    padding_size: usize,
+    uninitialized_size: usize,
 }
