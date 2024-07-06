@@ -38,21 +38,25 @@ unsafe extern "C" fn loader_entrypoint() {
     // right after the relocation information comes the wrapped code.
     let wrapped_code_ptr = cursor.cur_ptr;
 
+    // copy the wrapped kernel code from ROM to RAM so that we can relocate it.
+    let kernel_dst_addr = 0xa0400000 as *mut u8;
+    kernel_dst_addr.copy_from_nonoverlapping(wrapped_code_ptr, info.initialized_size as usize);
+
     for relocation in relocations {
-        let relocated_value = &mut *wrapped_code_ptr.add(relocation.offset).cast::<usize>();
+        let relocated_value = &mut *kernel_dst_addr.add(relocation.offset).cast::<usize>();
 
         // to apply the relocation, just add the code address to the memory location.
-        *relocated_value += wrapped_code_ptr as usize;
+        *relocated_value += kernel_dst_addr as usize;
     }
 
     // fill the uninitialized memory with zeroes.
-    let uninitialized_data_ptr = wrapped_code_ptr.add(info.initialized_size as usize);
+    let uninitialized_data_ptr = kernel_dst_addr.add(info.initialized_size as usize);
     let uninitialized_data =
         core::slice::from_raw_parts_mut(uninitialized_data_ptr, info.uninitialized_size as usize);
     uninitialized_data.fill(0);
 
     let entrypoint: Entrypoint =
-        core::mem::transmute(wrapped_code_ptr.add(info.entry_point_offset as usize));
+        core::mem::transmute(kernel_dst_addr.add(info.entry_point_offset as usize));
     entrypoint()
 }
 
