@@ -111,7 +111,7 @@ fn read_cp0_config() -> u32 {
 }
 
 fn initialize_cache() {
-    let mmu_type: usize = read_cp0_config();
+    let mmu_type: u32 = read_cp0_config();
 }
 
 global_asm!(
