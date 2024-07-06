@@ -6,29 +6,8 @@ SECTIONS
     .text : {
         *(.text.loader_entrypoint)
         *(.text) *(.text.*)
-    }
+    } :code
     END_OF_CODE = .;
-
-    .rodata : {
-        *(.rodata)
-        *(.rodata.*)
-        *(.got)
-        *(.got.*)
-    }
-
-    .data : {
-        *(.data)
-        *(.data.*)
-    }
-
-    .bss : {
-        *(.bss)
-        *(.bss.*)
-    }
-
-    .rel : {
-        *(.rel.*)
-    }
 
     /DISCARD/ : {
         *(.eh_frame)
@@ -50,5 +29,10 @@ SECTIONS
         *(.debug_str)
         *(.debug_frame)
         *(.debug_line)
+        *(.got)
     }
+}
+
+PHDRS {
+    code PT_LOAD;
 }

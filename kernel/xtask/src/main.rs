@@ -24,15 +24,45 @@ fn run() -> Result<()> {
 }
 
 fn build() -> Result<()> {
+    let loader_code = build_and_extract_loader_code()?;
+    let packed_kelf_content = build_and_pack_kelf_content(&loader_code)?;
+    let packed_kernel_path = "target/target/debug/kernel";
+    std::fs::write(packed_kernel_path, packed_kelf_content).context(format!(
+        "failed to write packed kernel file {packed_kernel_path}"
+    ))?;
+    Ok(())
+}
+
+fn build_and_pack_kelf_content(loader_code: &[u8]) -> Result<Vec<u8>> {
     cmd!("cargo", "build").current_dir("core").run()?;
     let kelf_path = "target/target/debug/core";
     let kelf_content =
         std::fs::read(kelf_path).context(format!("failed to read kernel elf file {kelf_path}"))?;
-    pack_kelf_file(&kelf_content).context(format!("failed to pack kernel elf file {kelf_path}"))?;
-    Ok(())
+    pack_kelf_file(&kelf_content, loader_code)
+        .context(format!("failed to pack kernel elf file {kelf_path}"))
+}
+fn build_and_extract_loader_code() -> Result<Vec<u8>> {
+    // build the loader. this must be done in release mode so that the compiler will optimize everything out and we are only left
+    // with a .text section. if we don't do this we get a whole bunch of extra sections due to linking with rust's stdlib.
+    cmd!("cargo", "build", "--release")
+        .current_dir("loader")
+        .run()?;
+    let loader_elf_path = "target/target/release/loader";
+    let loader_elf_content = std::fs::read(loader_elf_path)
+        .context(format!("failed to read loader elf file {loader_elf_path}"))?;
+    Ok(extract_loader_code(&loader_elf_content)
+        .context(format!(
+            "failed to extract loader code from loader elf file {loader_elf_path}"
+        ))?
+        .to_vec())
 }
 
-fn pack_kelf_file(kelf_content: &[u8]) -> Result<()> {
+fn extract_loader_code(loader_elf_content: &[u8]) -> Result<&[u8]> {
+    let elf = ElfParser::new(loader_elf_content)?;
+    Ok(elf.program_headers()?.get(0)?.content_in_file()?)
+}
+
+fn pack_kelf_file(kelf_content: &[u8], loader_code: &[u8]) -> Result<Vec<u8>> {
     let elf = ElfParser::new(kelf_content)?;
     let phdrs_info = process_elf_phdrs(&elf)?;
     let rels_info = process_elf_relocs(&elf)?;
@@ -40,10 +70,30 @@ fn pack_kelf_file(kelf_content: &[u8]) -> Result<()> {
         relocations_amount: rels_info.encoded_rels_amount as u32,
         initialized_size: phdrs_info.full_content.len() as u32,
         uninitialized_size: phdrs_info.uninitialized_size as u32,
-        entry_point_offset: todo!(),
+        entry_point_offset: elf.header()?.entry() as u32,
     };
-    println!("{:?}", rels_info);
-    Ok(())
+
+    let mut serializer = BinarySerializerToVec::new(elf.file_info().endianness);
+
+    // add the code of the loader
+    serializer.buffer_mut().extend_from_slice(loader_code);
+
+    // add the loader info header
+    buf_align_len_to_type::<LoaderInfoHeader>(serializer.buffer_mut());
+    serializer.serialize(&loader_info);
+
+    // add the encoded relocation
+    buf_align_len(serializer.buffer_mut(), rels_info.alignment);
+    serializer
+        .buffer_mut()
+        .extend_from_slice(&rels_info.encoded_rels);
+
+    // add the wrapper code
+    serializer
+        .buffer_mut()
+        .extend_from_slice(&phdrs_info.full_content);
+
+    Ok(serializer.into_buffer())
 }
 
 fn process_elf_phdrs(elf: &ElfParser) -> Result<PhdrsInfo> {
@@ -106,9 +156,21 @@ fn process_elf_relocs(elf: &ElfParser) -> Result<RelsInfo> {
         }
     }
     Ok(RelsInfo {
-        encoded_rels: rel_encoder.serializer.into_buffer(),
+        alignment: rel_encoder.alignment(),
         encoded_rels_amount: rel_encoder.encoded_rels_amount,
+        encoded_rels: rel_encoder.serializer.into_buffer(),
     })
+}
+
+fn buf_align_len(buf: &mut Vec<u8>, alignment: usize) {
+    let aligned_len = ((buf.len() + alignment - 1) / alignment) * alignment;
+    if buf.len() != aligned_len {
+        buf.resize(aligned_len, 0);
+    }
+}
+
+fn buf_align_len_to_type<T>(buf: &mut Vec<u8>) {
+    buf_align_len(buf, core::mem::align_of::<T>())
 }
 
 struct RelEncoder {
@@ -136,6 +198,12 @@ impl RelEncoder {
         };
         self.encoded_rels_amount += 1;
     }
+    pub fn alignment(&self) -> usize {
+        match self.bit_length {
+            ArchBitLength::Arch32Bit => 4,
+            ArchBitLength::Arch64Bit => 8,
+        }
+    }
 }
 
 #[derive(BinarySerde)]
@@ -158,6 +226,9 @@ struct RelsInfo {
 
     /// the amount of encoded relocations.
     encoded_rels_amount: usize,
+
+    /// the required alignment of the encoded relocations information.
+    alignment: usize,
 }
 
 /// information extracted from the elfs phdr's
