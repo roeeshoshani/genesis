@@ -111,7 +111,9 @@ fn process_elf_phdrs(elf: &ElfParser) -> Result<PhdrsInfo> {
         let is_last_phdr = phdr_idx + 1 == phdrs.len();
 
         // account for padding between the previous section and the current one
-        full_content.resize(phdr.virt_addr() as usize, 0);
+        if phdr.virt_addr() > full_content.len() as u64 {
+            full_content.resize(phdr.virt_addr() as usize, 0);
+        }
 
         // add the content of the phdr
         full_content.extend_from_slice(phdr.content_in_file()?);
