@@ -375,4 +375,5 @@ dependencies = [
  "clap",
  "devx-cmd",
  "elflib",
+ "loader_shared",
 ]

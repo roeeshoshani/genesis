@@ -8,9 +8,15 @@ pub struct LoaderInfoHeader {
     /// the amount of relative relocations.
     pub relocations_amount: u32,
 
+    /// the size of the initialized part of the wrapped code.
+    pub initialized_size: u32,
+
+    /// the size of the uninitialized part following the initialized part of the wrapped code.
+    pub uninitialized_size: u32,
+
     /// the total size of the info provided to the loader, including this header and all the information that follows it.
     pub loader_info_total_size: u32,
 
-    /// the offset of the entry point inside the wrapped shellcode blob.
+    /// the offset of the entry point inside the wrapped code.
     pub entry_point_offset: u32,
 }
