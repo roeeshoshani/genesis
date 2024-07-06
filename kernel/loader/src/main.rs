@@ -23,6 +23,7 @@ extern "C" {
 global_asm!(include_str!("boot.S"));
 
 /// the entrypoint of the shellcode loader.
+/// this must be the first function defined right after the include of the `boot.S` file.
 #[no_mangle]
 #[link_section = ".text.boot"]
 unsafe extern "C" fn loader_entrypoint() {
