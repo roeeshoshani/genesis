@@ -50,18 +50,39 @@ fn run() -> Result<()> {
     Ok(())
 }
 
+fn concat_vecs<T>(mut a: Vec<T>, mut b: Vec<T>) -> Vec<T> {
+    a.append(&mut b);
+    a
+}
+
 fn build() -> Result<()> {
-    let loader_code = build_and_extract_loader_code()?;
-    let packed_kelf_content = build_and_pack_kelf_content(&loader_code)?;
-    let post_processed_content = post_process_packed_kelf_content(packed_kelf_content);
-    let packed_kernel_path = "target/target/debug/kernel";
-    std::fs::write(packed_kernel_path, post_processed_content).context(format!(
-        "failed to write packed kernel file {packed_kernel_path}"
+    // build and pack the kernel elf into a shellcode
+    let packed_kelf_content = build_and_pack_kelf_content()?;
+
+    // build the boot code
+    let boot_code = build_and_extract_boot_code()?;
+
+    // concat the boot code with the packed kernel elf.
+    let kernel_content = concat_vecs(boot_code, packed_kelf_content);
+
+    // write the pre post-processing content
+    let pre_post_processing_kernel_path = "target/target/debug/pre_post_processing_kernel";
+    std::fs::write(pre_post_processing_kernel_path, kernel_content.as_slice()).context(format!(
+        "failed to write pre post-processing kernel file {pre_post_processing_kernel_path}"
     ))?;
+
+    // post process the content
+    let post_processed_content = post_process_kernel_content(kernel_content);
+
+    // write the final content to a file.
+    let packed_kernel_path = "target/target/debug/kernel";
+    std::fs::write(packed_kernel_path, post_processed_content)
+        .context(format!("failed to write kernel file {packed_kernel_path}"))?;
+
     Ok(())
 }
 
-fn post_process_packed_kelf_content(mut content: Vec<u8>) -> Vec<u8> {
+fn post_process_kernel_content(mut content: Vec<u8>) -> Vec<u8> {
     // for some reason, when passing the kernel image using the `-bios` flag to `qemu`, it decides to swap the endianness
     // of every 4 bytes of the image. to undo this effect, we swap the bytes ourselves.
     buf_align_len(&mut content, 4);
@@ -73,14 +94,16 @@ fn post_process_packed_kelf_content(mut content: Vec<u8>) -> Vec<u8> {
     content
 }
 
-fn build_and_pack_kelf_content(loader_code: &[u8]) -> Result<Vec<u8>> {
+fn build_and_pack_kelf_content() -> Result<Vec<u8>> {
+    let loader_code = build_and_extract_loader_code()?;
     cmd!("cargo", "build").current_dir("core").run()?;
     let kelf_path = "target/target/debug/core";
     let kelf_content =
         std::fs::read(kelf_path).context(format!("failed to read kernel elf file {kelf_path}"))?;
-    pack_kelf_file(&kelf_content, loader_code)
+    pack_kelf_file(&kelf_content, &loader_code)
         .context(format!("failed to pack kernel elf file {kelf_path}"))
 }
+
 fn build_and_extract_loader_code() -> Result<Vec<u8>> {
     // build the loader. this must be done in release mode so that the compiler will optimize everything out and we are only left
     // with a .text section. if we don't do this we get a whole bunch of extra sections due to linking with rust's stdlib.
@@ -90,14 +113,28 @@ fn build_and_extract_loader_code() -> Result<Vec<u8>> {
     let loader_elf_path = "target/target/release/loader";
     let loader_elf_content = std::fs::read(loader_elf_path)
         .context(format!("failed to read loader elf file {loader_elf_path}"))?;
-    Ok(extract_loader_code(&loader_elf_content)
+    Ok(get_first_phdr_content(&loader_elf_content)
         .context(format!(
             "failed to extract loader code from loader elf file {loader_elf_path}"
         ))?
         .to_vec())
 }
 
-fn extract_loader_code(loader_elf_content: &[u8]) -> Result<&[u8]> {
+fn build_and_extract_boot_code() -> Result<Vec<u8>> {
+    // build the loader. this must be done in release mode so that the compiler will optimize everything out and we are only left
+    // with a .text section. if we don't do this we get a whole bunch of extra sections due to linking with rust's stdlib.
+    cmd!("cargo", "build").current_dir("boot").run()?;
+    let boot_elf_path = "target/target/debug/boot";
+    let boot_elf_content = std::fs::read(boot_elf_path)
+        .context(format!("failed to read boot elf file {boot_elf_path}"))?;
+    Ok(get_first_phdr_content(&boot_elf_content)
+        .context(format!(
+            "failed to extract boot code from boot elf file {boot_elf_path}"
+        ))?
+        .to_vec())
+}
+
+fn get_first_phdr_content(loader_elf_content: &[u8]) -> Result<&[u8]> {
     let elf = ElfParser::new(loader_elf_content)?;
     Ok(elf.program_headers()?.get(0)?.content_in_file()?)
 }
