@@ -1,9 +1,12 @@
-set architecture mips:isa32r6
+set architecture mips:isa32r2
 set endian little 
 
 define hook-stop
 x/4i $pc
 end
 
+symbol-file loader/target/target/release/loader
+
 target remote localhost:1234
+
 

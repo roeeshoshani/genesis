@@ -7,3 +7,7 @@ edition = "2021"
 bitfield-struct = "0.8.0"
 intbits = "0.2.0"
 loader_shared = { path = "../loader_shared" }
+
+[profile.release]
+debug = true
+strip = "none"
