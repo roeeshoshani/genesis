@@ -1,4 +1,4 @@
-set architecture mips
+set architecture mips:isa32r6
 set endian little 
 
 define hook-stop
