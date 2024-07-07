@@ -1,6 +1,6 @@
-#define KSEG0_START (0x800_0000)
-#define KSEG1_START (0xa00_0000)
-#define STACK_SIZE (4 * 1024 * 1024) // 4MB
+.set KSEG0_START, (0x8000000)
+.set KSEG1_START, (0xa000000)
+.set STACK_SIZE, (4 * 1024 * 1024)
 
 .section .text.boot
 
