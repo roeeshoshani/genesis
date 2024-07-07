@@ -1,3 +1,7 @@
+#define KSEG0_START (0x800_0000)
+#define KSEG1_START (0xa00_0000)
+#define STACK_SIZE (4 * 1024 * 1024) // 4MB
+
 .section .text.boot
 
 .globl _start
@@ -10,8 +14,11 @@ nop
 nop
 nop
 after_hole:
-// make the stack point to physical address 0x400000. this address is mapped to ram and thus can be used as stack space.
-li $sp, 0xa0400000
+// set up the stack by making it point to some offset from the start of the physical address space.
+// the first 128MB at the start of the physical address space is all mapped to ram, so this ensures that our stack will use ram.
+// we are pointing to that physical address through kseg1, which is uncached, since cache is not yet initialized.
+li $sp, (KSEG1_START + STACK_SIZE)
+b loader_entrypoint
 
 .previous
 

@@ -32,6 +32,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitfield-struct"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de05f8756f1c68937349406d4632ae96ae35901019b5e59c508d9c38c64715fb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.68",
+]
+
+[[package]]
 name = "intbits"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -41,6 +52,7 @@ checksum = "5170c2c8ecda29c1bccb9d95ccbe107bc75fa084dc0c9c6087e719f9d46330e5"
 name = "loader"
 version = "0.1.0"
 dependencies = [
+ "bitfield-struct",
  "intbits",
  "loader_shared",
 ]

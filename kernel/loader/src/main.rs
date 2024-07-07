@@ -9,7 +9,12 @@ use core::{
     ptr::addr_of_mut,
 };
 
+use bitfield_struct::bitfield;
 use loader_shared::LoaderInfoHeader;
+
+const KSEG0_START: usize = 0x800_0000;
+const KSEG1_START: usize = 0xa00_0000;
+const STACK_SIZE: usize = 4 * 1024 * 1024;
 
 #[repr(C)]
 struct EncodedRel {
@@ -29,9 +34,12 @@ global_asm!(include_str!("boot.S"));
 
 /// the entrypoint of the shellcode loader.
 #[no_mangle]
-#[link_section = ".text.boot"]
 unsafe extern "C" fn loader_entrypoint() {
+    // first, initialize the cache.
     initialize_cache();
+
+    // now that the cache is initialized, switch the stack to use cachable memory.
+    make_stack_cachable();
 
     let end_of_code_ptr =
         get_reference_point_addr().add(addr_of_mut!(REFERENCE_POINT_OFFSET_FROM_END) as usize);
@@ -46,7 +54,8 @@ unsafe extern "C" fn loader_entrypoint() {
     let wrapped_code_ptr = cursor.cur_ptr;
 
     // copy the wrapped kernel code from ROM to RAM so that we can relocate it.
-    let kernel_dst_addr = 0xa0400000 as *mut u8;
+    // put the kernel at a physical address which is right after the end of the stack. map it using kseg0 so that it will be cached.
+    let kernel_dst_addr = (KSEG0_START + STACK_SIZE) as *mut u8;
     kernel_dst_addr.copy_from_nonoverlapping(wrapped_code_ptr, info.initialized_size as usize);
 
     for relocation in relocations {
@@ -67,23 +76,98 @@ unsafe extern "C" fn loader_entrypoint() {
     entrypoint()
 }
 
-const CP0_CONFIG: usize = 16;
-const CACHE_OP_INDEX_INVALIDATE_I: usize = 0;
-const CACHE_OP_INDEX_WRITEBACK_INVALIDATE_D: usize = 1;
-const CACHE_OP_INDEX_WRITEBACK_INVALIDATE_S: usize = 3;
+/// the register group of a coprocessor 0 register.
+/// this can be combines with a `select` value to get a percise register address.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum Cp0RegGroup {
+    Config = 16,
+    Cache = 28,
+}
+
+/// the address of a coprocessor 0 register.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct Cp0Reg {
+    /// the register group.
+    pub group: Cp0RegGroup,
+
+    /// the select value.
+    pub select: u8,
+}
+impl Cp0Reg {
+    pub const CONFIG_0: Self = Self {
+        group: Cp0RegGroup::Config,
+        select: 0,
+    };
+    pub const CONFIG_1: Self = Self {
+        group: Cp0RegGroup::Config,
+        select: 1,
+    };
+    pub const I_TAG_LO: Self = Self {
+        group: Cp0RegGroup::Cache,
+        select: 0,
+    };
+    pub const D_TAG_LO: Self = Self {
+        group: Cp0RegGroup::Cache,
+        select: 2,
+    };
+}
+
+/// the cache type to be used in a cache instruction.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum CacheType {
+    PrimaryInstruction = 0b00,
+    PrimaryData = 0b01,
+    Tertiary = 0b10,
+    Secondary = 0b11,
+}
+
+/// the operation type to be perfomed by a cache instruction.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum CacheInsnOperationType {
+    /// for instruction caches, this only invalidates the cache line with the given index.
+    /// for data caches, this writes back the cache line with the given index if it is dirty, and invalidates it.
+    IndexWritebackInvalidate = 0b000,
+
+    /// load the parameters (tag, data, parity bits) of the cache entry with the given index.
+    /// the parameters are loaded into the corresponding coprocessor 0 registers.
+    IndexLoadTag = 0b001,
+
+    /// store the tag value in the ?TagLo coprocessor 0 register into the cache entry with the given index.
+    IndexStoreTag = 0b010,
+}
+
+/// the cache insn `op` operand.
+pub struct CacheInsnOp {
+    /// the cache type to which the cache operation should be applied.
+    pub cache_type: CacheType,
+
+    /// the cache operation to perform.
+    pub operation_type: CacheInsnOperationType,
+}
+impl CacheInsnOp {
+    /// encodes the cache op into its opcode binary representation.
+    pub const fn encode(&self) -> u8 {
+        self.cache_type as u8 | ((self.operation_type as u8) << 2)
+    }
+}
 
 macro_rules! read_cp0_reg {
-    ($reg_index: expr, $select: expr) => {
+    ($reg: expr) => {
         {
+            let _: Cp0Reg = $reg;
             let reg_value: u32;
             unsafe {
                 asm!(
                     ".set noat",
-                    "mfc0 {res}, ${reg_index}, {select}",
+                    "mfc0 {res}, ${group}, {select}",
                     ".set at",
                     res = out(reg) reg_value,
-                    reg_index = const $reg_index,
-                    select = const $select,
+                    group = const { $reg.group as u32 },
+                    select = const { $reg.select },
+                    options(nomem, preserves_flags, nostack),
                 );
             }
             reg_value
@@ -92,26 +176,189 @@ macro_rules! read_cp0_reg {
     };
 }
 
+macro_rules! write_cp0_reg {
+    ($reg: expr, $value: expr) => {
+        {
+            let _: Cp0Reg = $reg;
+            unsafe {
+                asm!(
+                    ".set noat",
+                    "mtc0 {value}, ${group}, {select}",
+                    ".set at",
+                    value = in(reg) $value,
+                    group = const { $reg.group as u32 },
+                    select = const { $reg.select },
+                    options(nomem, preserves_flags, nostack),
+                );
+            }
+        }
+
+    };
+}
+
 macro_rules! cache_insn {
-    ($op: expr, $offset: expr) => {
-        unsafe {
-            asm!(
-                ".set noat",
-                "cache {op}, 0({offset})",
-                ".set at",
-                op = const $op,
-                offset = in(reg) ($offset)
-            )
+    ($op: expr, $addr: expr) => {
+        {
+            let _ : CacheInsnOp = $op;
+            unsafe {
+                asm!(
+                    ".set noat",
+                    "cache {op}, 0({addr})",
+                    ".set at",
+                    op = const { $op.encode() },
+                    addr = in(reg) ($addr),
+                    options(nomem, preserves_flags, nostack),
+                )
+            }
         }
     };
 }
 
-fn read_cp0_config() -> u32 {
-    read_cp0_reg!(CP0_CONFIG, 0)
+fn read_cp0_config1() -> Cp0Config1 {
+    Cp0Config1::from_bits(read_cp0_reg!(Cp0Reg::CONFIG_1))
+}
+
+/// the config1 register of coprocessor 0
+#[bitfield(u32)]
+pub struct Cp0Config1 {
+    pub is_fpu_implemented: bool,
+    pub is_jtag_implemented: bool,
+    pub is_mips16_implemented: bool,
+    pub are_watch_registers_implemented: bool,
+    pub are_performance_counter_registers_implemented: bool,
+    pub is_mdmx_implemented: bool,
+    pub is_coprocessor_2_present: bool,
+
+    #[bits(3)]
+    pub dcache_associativity_val: u8,
+    #[bits(3)]
+    pub dcache_line_size_val: u8,
+    #[bits(3)]
+    pub dcache_sets_per_way_val: u8,
+
+    #[bits(3)]
+    pub icache_associativity_val: u8,
+    #[bits(3)]
+    pub icache_line_size_val: u8,
+    #[bits(3)]
+    pub icache_sets_per_way_val: u8,
+
+    #[bits(6)]
+    pub tlb_last_entry_index: u8,
+
+    pub is_config2_register_present: bool,
+}
+
+/// parameters of a cache.
+///
+/// here is some guide for how to decipher the meaning of these parameters.
+///
+/// the mips spec has weird way of looking at the structure of the cache.
+///
+/// it looks at it as if it is first split into some number of different "way"s.
+/// for example, for the 24k core, the cache is split into 4 ways.
+///
+/// then, each "way" is split into some number of different "set"s, and each set has an associated "index" which can be derived
+/// from the virtual address being accessed.
+///
+/// now let's look at what happens when we try to read from the cache.
+/// - first we derive the "index" from the virtual address.
+/// - then we iterate over each of the "way"s in the cache.
+/// - for each "way", we choose the "set" with the calculated "index".
+/// - if the "set" is valid, we compare its tag with our tag, and if it matches, we return its data.
+///
+/// the purpose of having multiple ways is that if we access a virtual address with index I, and the cache already contains
+/// an address with index I, we won't necessarily have to evict the existing cache line, instead we could find an empty cache
+/// entry with the same index in a different way. so, we can have 4 simultanous entries with the same index in the cache.
+///
+/// i found it more intuitive to look at it as first being split into different sets, and then each set containing 4 ways,
+/// but they chose to look at it the opposite way.
+pub struct CacheParams {
+    /// the associativity of the cache. this is the number of ways in the cache.
+    pub associativity: usize,
+    /// the size in bytes of a cache line.
+    pub line_size: usize,
+    /// the amount of sets (cache lines) per way.
+    pub sets_per_way: usize,
+}
+impl CacheParams {
+    /// parses the provided cache parameter raw values.
+    /// if the provided values indicate that the cache is not present, `None` is returned.
+    pub fn parse(associativity_val: u8, line_size_val: u8, sets_per_way_val: u8) -> Option<Self> {
+        if line_size_val == 0 {
+            return None;
+        }
+        Some(Self {
+            associativity: associativity_val as usize + 1,
+            line_size: 2 << line_size_val,
+            sets_per_way: 64 << sets_per_way_val,
+        })
+    }
+    /// the total amount of cache lines in the cache.
+    pub fn total_lines_amount(&self) -> usize {
+        self.associativity * self.sets_per_way
+    }
+}
+
+/// switch the stack from pointing to kseg1 to pointing the same physical address but in kseg0 so that it points to cachable memory.
+fn make_stack_cachable() {
+    let stack_cachable_offset = KSEG0_START.wrapping_sub(KSEG1_START);
+    unsafe {
+        asm!(
+            ".set noat",
+            "addu $sp, {offset}",
+            ".set at",
+            offset = in(reg) stack_cachable_offset,
+            options(nomem, preserves_flags, nostack)
+        );
+    }
 }
 
 fn initialize_cache() {
-    let mmu_type: u32 = read_cp0_config();
+    let config1 = read_cp0_config1();
+    if let Some(dcache_params) = CacheParams::parse(
+        config1.dcache_associativity_val(),
+        config1.dcache_line_size_val(),
+        config1.dcache_sets_per_way_val(),
+    ) {
+        // fill the DTagLo register with zero bits. this will make the "valid" bit zero, which will allow us to invalidate
+        // all cache entries.
+        write_cp0_reg!(Cp0Reg::D_TAG_LO, 0);
+
+        // write the zeroed out tag to all dcache entries
+        for line_index in 0..dcache_params.total_lines_amount() {
+            let flush_addr = KSEG0_START + line_index * dcache_params.line_size;
+            cache_insn!(
+                CacheInsnOp {
+                    cache_type: CacheType::PrimaryData,
+                    operation_type: CacheInsnOperationType::IndexStoreTag
+                },
+                flush_addr
+            );
+        }
+    }
+
+    if let Some(icache_params) = CacheParams::parse(
+        config1.icache_associativity_val(),
+        config1.icache_line_size_val(),
+        config1.icache_sets_per_way_val(),
+    ) {
+        // fill the ITagLo register with zero bits. this will make the "valid" bit zero, which will allow us to invalidate
+        // all cache entries.
+        write_cp0_reg!(Cp0Reg::I_TAG_LO, 0);
+
+        // write the zeroed out tag to all icache entries
+        for line_index in 0..icache_params.total_lines_amount() {
+            let flush_addr = KSEG0_START + line_index * icache_params.line_size;
+            cache_insn!(
+                CacheInsnOp {
+                    cache_type: CacheType::PrimaryInstruction,
+                    operation_type: CacheInsnOperationType::IndexStoreTag
+                },
+                flush_addr
+            );
+        }
+    }
 }
 
 global_asm!(
