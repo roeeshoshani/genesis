@@ -42,7 +42,7 @@ fn run() -> Result<()> {
     run!(
         "qemu-system-mipsel",
         "-bios",
-        "../target/target/debug/kernel",
+        "target/target/debug/kernel",
         "-S",
         "-s",
         "--nographic"
@@ -72,7 +72,7 @@ fn build() -> Result<()> {
     let kernel_content = build_and_pack_kelf_content()?;
 
     // write the pre post-processing content
-    let pre_post_processing_kernel_path = "../target/target/debug/pre_post_processing_kernel";
+    let pre_post_processing_kernel_path = "target/target/debug/pre_post_processing_kernel";
     creare_parent_dirs_and_write_file(pre_post_processing_kernel_path, kernel_content.as_slice())
         .context(format!(
         "failed to write pre post-processing kernel file {pre_post_processing_kernel_path}"
@@ -82,7 +82,7 @@ fn build() -> Result<()> {
     let post_processed_content = post_process_kernel_content(kernel_content);
 
     // write the final content to a file.
-    let packed_kernel_path = "../target/target/debug/kernel";
+    let packed_kernel_path = "target/target/debug/kernel";
     creare_parent_dirs_and_write_file(packed_kernel_path, post_processed_content)
         .context(format!("failed to write kernel file {packed_kernel_path}"))?;
 
@@ -103,8 +103,8 @@ fn post_process_kernel_content(mut content: Vec<u8>) -> Vec<u8> {
 
 fn build_and_pack_kelf_content() -> Result<Vec<u8>> {
     let loader_code = build_and_extract_loader_code()?;
-    cmd!("cargo", "build").current_dir("../core").run()?;
-    let kelf_path = "../core/target/target/debug/core";
+    cmd!("cargo", "build").current_dir("core").run()?;
+    let kelf_path = "core/target/target/debug/core";
     let kelf_content =
         std::fs::read(kelf_path).context(format!("failed to read kernel elf file {kelf_path}"))?;
     pack_kelf_file(&kelf_content, &loader_code)
@@ -115,9 +115,9 @@ fn build_and_extract_loader_code() -> Result<Vec<u8>> {
     // build the loader. this must be done in release mode so that the compiler will optimize everything out and we are only left
     // with a .text section. if we don't do this we get a whole bunch of extra sections due to linking with rust's stdlib.
     cmd!("cargo", "build", "--release")
-        .current_dir("../loader")
+        .current_dir("loader")
         .run()?;
-    let loader_elf_path = "../loader/target/target/release/loader";
+    let loader_elf_path = "loader/target/target/release/loader";
     let loader_elf_content = std::fs::read(loader_elf_path)
         .context(format!("failed to read loader elf file {loader_elf_path}"))?;
     Ok(get_first_phdr_content(&loader_elf_content)
