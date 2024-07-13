@@ -9,7 +9,7 @@ use core::{
     ptr::addr_of_mut,
 };
 
-use bitfield_struct::bitfield;
+use bitpiece::*;
 use loader_shared::LoaderInfoHeader;
 
 const KSEG0_START: usize = 0x800_0000;
@@ -218,35 +218,40 @@ fn read_cp0_config1() -> Cp0Config1 {
     Cp0Config1::from_bits(read_cp0_reg!(Cp0Reg::CONFIG_1))
 }
 
-/// the config1 register of coprocessor 0
-#[bitfield(u32)]
-pub struct Cp0Config1 {
-    pub is_fpu_implemented: bool,
-    pub is_jtag_implemented: bool,
-    pub is_mips16_implemented: bool,
-    pub are_watch_registers_implemented: bool,
-    pub are_performance_counter_registers_implemented: bool,
-    pub is_mdmx_implemented: bool,
-    pub is_coprocessor_2_present: bool,
+/// the associativity of a cache. this is the number of ways in the cache.
+#[bitpiece]
+#[derive(Debug, Clone, Copy)]
+pub struct CacheAssociativity {
+    raw_val: B3,
+}
+impl CacheAssociativity {
+    pub fn value(self) -> usize {
+        self.raw_val().0 as usize + 1
+    }
+}
 
-    #[bits(3)]
-    pub dcache_associativity_val: u8,
-    #[bits(3)]
-    pub dcache_line_size_val: u8,
-    #[bits(3)]
-    pub dcache_sets_per_way_val: u8,
+/// the size in bytes of a cache line.
+#[bitpiece]
+#[derive(Debug, Clone, Copy)]
+pub struct CacheLineSize {
+    raw_val: B3,
+}
+impl CacheLineSize {
+    pub fn value(self) -> usize {
+        2 << self.raw_val().0
+    }
+}
 
-    #[bits(3)]
-    pub icache_associativity_val: u8,
-    #[bits(3)]
-    pub icache_line_size_val: u8,
-    #[bits(3)]
-    pub icache_sets_per_way_val: u8,
-
-    #[bits(6)]
-    pub tlb_last_entry_index: u8,
-
-    pub is_config2_register_present: bool,
+/// the number of sets (cache lines) per way.
+#[bitpiece]
+#[derive(Debug, Clone, Copy)]
+pub struct CacheSetsPerWay {
+    raw_val: B3,
+}
+impl CacheSetsPerWay {
+    pub fn value(self) -> usize {
+        64 << self.raw_val().0
+    }
 }
 
 /// parameters of a cache.
@@ -273,32 +278,50 @@ pub struct Cp0Config1 {
 ///
 /// i found it more intuitive to look at it as first being split into different sets, and then each set containing 4 ways,
 /// but they chose to look at it the opposite way.
+#[bitpiece]
+#[derive(Debug, Clone, Copy)]
 pub struct CacheParams {
     /// the associativity of the cache. this is the number of ways in the cache.
-    pub associativity: usize,
+    pub associativity: CacheAssociativity,
     /// the size in bytes of a cache line.
-    pub line_size: usize,
+    pub line_size: CacheLineSize,
     /// the amount of sets (cache lines) per way.
-    pub sets_per_way: usize,
+    pub sets_per_way: CacheSetsPerWay,
 }
 impl CacheParams {
-    /// parses the provided cache parameter raw values.
-    /// if the provided values indicate that the cache is not present, `None` is returned.
-    pub fn parse(associativity_val: u8, line_size_val: u8, sets_per_way_val: u8) -> Option<Self> {
-        if line_size_val == 0 {
-            return None;
-        }
-        Some(Self {
-            associativity: associativity_val as usize + 1,
-            line_size: 2 << line_size_val,
-            sets_per_way: 64 << sets_per_way_val,
-        })
+    /// determines whether this cache is present.
+    pub fn is_cache_present(&self) -> bool {
+        self.line_size().raw_val().0 != 0
     }
     /// the total amount of cache lines in the cache.
     pub fn total_lines_amount(&self) -> usize {
-        self.associativity * self.sets_per_way
+        self.associativity().value() * self.sets_per_way().value()
     }
 }
+
+/// the config1 register of coprocessor 0
+#[bitpiece]
+#[derive(Debug, Clone, Copy)]
+pub struct Cp0Config1 {
+    pub is_fpu_implemented: bool,
+    pub is_jtag_implemented: bool,
+    pub is_mips16_implemented: bool,
+    pub are_watch_registers_implemented: bool,
+    pub are_performance_counter_registers_implemented: bool,
+    pub is_mdmx_implemented: bool,
+    pub is_coprocessor_2_present: bool,
+
+    pub dcache_params: CacheParams,
+    pub icache_params: CacheParams,
+
+    pub tlb_last_entry_index: B6,
+
+    pub is_config2_register_present: bool,
+}
+
+/// the config0 register of coprocessor 0
+// #[bitfield(u32)]
+// pub struct Cp0Config0 {}
 
 /// switch the stack from pointing to kseg1 to pointing the same physical address but in kseg0 so that it points to cachable memory.
 fn make_stack_cachable() {
@@ -316,18 +339,15 @@ fn make_stack_cachable() {
 
 fn initialize_cache() {
     let config1 = read_cp0_config1();
-    if let Some(dcache_params) = CacheParams::parse(
-        config1.dcache_associativity_val(),
-        config1.dcache_line_size_val(),
-        config1.dcache_sets_per_way_val(),
-    ) {
+    let dcache = config1.dcache_params();
+    if dcache.is_cache_present() {
         // fill the DTagLo register with zero bits. this will make the "valid" bit zero, which will allow us to invalidate
         // all cache entries.
         write_cp0_reg!(Cp0Reg::D_TAG_LO, 0);
 
         // write the zeroed out tag to all dcache entries
-        for line_index in 0..dcache_params.total_lines_amount() {
-            let flush_addr = KSEG0_START + line_index * dcache_params.line_size;
+        for line_index in 0..dcache.total_lines_amount() {
+            let flush_addr = KSEG0_START + line_index * dcache.line_size().value();
             cache_insn!(
                 CacheInsnOp {
                     cache_type: CacheType::PrimaryData,
@@ -338,18 +358,15 @@ fn initialize_cache() {
         }
     }
 
-    if let Some(icache_params) = CacheParams::parse(
-        config1.icache_associativity_val(),
-        config1.icache_line_size_val(),
-        config1.icache_sets_per_way_val(),
-    ) {
+    let icache = config1.icache_params();
+    if icache.is_cache_present() {
         // fill the ITagLo register with zero bits. this will make the "valid" bit zero, which will allow us to invalidate
         // all cache entries.
         write_cp0_reg!(Cp0Reg::I_TAG_LO, 0);
 
         // write the zeroed out tag to all icache entries
-        for line_index in 0..icache_params.total_lines_amount() {
-            let flush_addr = KSEG0_START + line_index * icache_params.line_size;
+        for line_index in 0..icache.total_lines_amount() {
+            let flush_addr = KSEG0_START + line_index * icache.line_size().value();
             cache_insn!(
                 CacheInsnOp {
                     cache_type: CacheType::PrimaryInstruction,

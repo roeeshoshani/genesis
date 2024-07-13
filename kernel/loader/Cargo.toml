@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bitfield-struct = "0.8.0"
-intbits = "0.2.0"
+bitpiece = "0.1.1"
 loader_shared = { path = "../loader_shared" }
 
 [profile.release]
