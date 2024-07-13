@@ -12,8 +12,8 @@ use core::{
 use bitpiece::*;
 use loader_shared::LoaderInfoHeader;
 
-const KSEG0_START: usize = 0x800_0000;
-const KSEG1_START: usize = 0xa00_0000;
+const KSEG0_START: usize = 0x8000_0000;
+const KSEG1_START: usize = 0xa000_0000;
 const STACK_SIZE: usize = 4 * 1024 * 1024;
 
 #[repr(C)]
@@ -37,6 +37,9 @@ global_asm!(include_str!("boot.S"));
 unsafe extern "C" fn loader_entrypoint() {
     // first, initialize the cache.
     initialize_cache();
+
+    // now that the cache is initialized, make kseg0 cachable.
+    make_kseg0_cachable();
 
     // now that the cache is initialized, switch the stack to use cachable memory.
     make_stack_cachable();
@@ -218,8 +221,12 @@ fn read_cp0_config1() -> Cp0Config1 {
     Cp0Config1::from_bits(read_cp0_reg!(Cp0Reg::CONFIG_1))
 }
 
+fn read_cp0_config0() -> Cp0Config0 {
+    Cp0Config0::from_bits(read_cp0_reg!(Cp0Reg::CONFIG_0))
+}
+
 /// the associativity of a cache. this is the number of ways in the cache.
-#[bitpiece]
+#[bitpiece(3)]
 #[derive(Debug, Clone, Copy)]
 pub struct CacheAssociativity {
     raw_val: B3,
@@ -231,7 +238,7 @@ impl CacheAssociativity {
 }
 
 /// the size in bytes of a cache line.
-#[bitpiece]
+#[bitpiece(3)]
 #[derive(Debug, Clone, Copy)]
 pub struct CacheLineSize {
     raw_val: B3,
@@ -243,7 +250,7 @@ impl CacheLineSize {
 }
 
 /// the number of sets (cache lines) per way.
-#[bitpiece]
+#[bitpiece(3)]
 #[derive(Debug, Clone, Copy)]
 pub struct CacheSetsPerWay {
     raw_val: B3,
@@ -278,7 +285,7 @@ impl CacheSetsPerWay {
 ///
 /// i found it more intuitive to look at it as first being split into different sets, and then each set containing 4 ways,
 /// but they chose to look at it the opposite way.
-#[bitpiece]
+#[bitpiece(9)]
 #[derive(Debug, Clone, Copy)]
 pub struct CacheParams {
     /// the associativity of the cache. this is the number of ways in the cache.
@@ -300,7 +307,7 @@ impl CacheParams {
 }
 
 /// the config1 register of coprocessor 0
-#[bitpiece]
+#[bitpiece(32)]
 #[derive(Debug, Clone, Copy)]
 pub struct Cp0Config1 {
     pub is_fpu_implemented: bool,
@@ -320,8 +327,79 @@ pub struct Cp0Config1 {
 }
 
 /// the config0 register of coprocessor 0
-// #[bitfield(u32)]
-// pub struct Cp0Config0 {}
+#[bitpiece(32)]
+#[derive(Debug, Clone, Copy)]
+pub struct Cp0Config0 {
+    pub k0_cache_config: CacheConfig,
+    pub reserved3: B4,
+    pub mmu_type: MmuType,
+    pub arch_revision: B3,
+    pub arch_type: B2,
+    pub endianness: CpuEndianness,
+    pub burst_order: CpuBurstOrder,
+    pub reserved17: B1,
+    pub is_write_through_merging_enabled: bool,
+    pub reserved19: B2,
+    pub is_simple_be_bus_mode_enabled: bool,
+    pub are_cor_extend_user_defined_insns_implemented: bool,
+    pub is_d_side_scrathpad_ram_present: bool,
+    pub is_i_side_scrathpad_ram_present: bool,
+    pub kuseg_cache_config: CacheConfig,
+    pub kseg2_and_kseg3_cache_config: CacheConfig,
+    pub is_config1_register_present: bool,
+}
+
+/// the burst order of the cpu.
+#[bitpiece(1)]
+#[derive(Debug, Clone, Copy)]
+pub enum CpuBurstOrder {
+    Sequential = 0,
+    SubBlock = 1,
+}
+
+/// the endianness of the cpu.
+#[bitpiece(1)]
+#[derive(Debug, Clone, Copy)]
+pub enum CpuEndianness {
+    Little = 0,
+    Big = 1,
+}
+
+/// the mmu type of the machine.
+#[bitpiece(3)]
+#[derive(Debug, Clone, Copy)]
+pub enum MmuType {
+    Reserved0 = 0,
+    Tlb = 1,
+    Reserved2 = 2,
+    FixedMapping = 3,
+    Reserved4 = 4,
+    Reserved5 = 5,
+    Reserved6 = 6,
+    Reserved7 = 7,
+}
+
+/// the cache configuration of a memory segment.
+#[bitpiece(3)]
+#[derive(Debug, Clone, Copy)]
+pub enum CacheConfig {
+    /// cacheable, noncoherent, write-through, no write allocate
+    CacheableWriteThrough = 0,
+    /// reserved
+    Reserved1 = 1,
+    /// uncached
+    Uncached = 2,
+    /// cacheable, noncoherent, write-back, write allocate
+    CacheableWriteBack = 3,
+    /// reserved
+    Reserved4 = 4,
+    /// reserved
+    Reserved5 = 5,
+    /// reserved
+    Reserved6 = 6,
+    /// uncached accelerated
+    UncachedAccelerated = 7,
+}
 
 /// switch the stack from pointing to kseg1 to pointing the same physical address but in kseg0 so that it points to cachable memory.
 fn make_stack_cachable() {
@@ -376,6 +454,13 @@ fn initialize_cache() {
             );
         }
     }
+}
+
+/// configure the cache behaviour of the kseg0 memory region.
+fn make_kseg0_cachable() {
+    let mut config0 = read_cp0_config0();
+    config0.set_k0_cache_config(CacheConfig::CacheableWriteBack);
+    write_cp0_reg!(Cp0Reg::CONFIG_0, config0.to_bits())
 }
 
 global_asm!(

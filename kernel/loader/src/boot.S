@@ -1,5 +1,5 @@
-.set KSEG0_START, (0x8000000)
-.set KSEG1_START, (0xa000000)
+.set KSEG0_START, (0x80000000)
+.set KSEG1_START, (0xa0000000)
 .set STACK_SIZE, (4 * 1024 * 1024)
 
 .section .text.boot
