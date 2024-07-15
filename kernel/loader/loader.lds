@@ -1,4 +1,4 @@
-ENTRY(_start)
+ENTRY(loader_start)
 
 SECTIONS
 {

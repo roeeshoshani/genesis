@@ -4,8 +4,8 @@
 
 .section .text.boot
 
-.globl _start
-_start:
+.globl loader_start
+loader_start:
 // currently we are at address 0xbfc00000.
 // at 0xbfc00010 we have a whole in the flash mmmio, which instead decodes to register address revision.
 // we don't want our code to collide with this hole, so we skip it.
