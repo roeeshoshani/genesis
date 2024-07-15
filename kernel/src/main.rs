@@ -247,6 +247,17 @@ fn process_elf_relocs(elf: &ElfParser) -> Result<RelsInfo> {
             rel_encoder.encode(regular_rel.offset(), rel_entry.addend.unwrap_or_default());
         }
     }
+    // add got relocations
+    for shdr_res in elf.section_headers()? {
+        let shdr = shdr_res?;
+        if shdr.name()? != ".got" {
+            continue;
+        }
+        // relocate each entry in the .got section
+        for entry_off in (0..shdr.size()).step_by(4) {
+            rel_encoder.encode(shdr.address() + entry_off, 0)
+        }
+    }
     Ok(RelsInfo {
         alignment: rel_encoder.alignment(),
         encoded_rels_amount: rel_encoder.encoded_rels_amount,
