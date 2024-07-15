@@ -9,6 +9,9 @@ SECTIONS
     .rodata : {
         *(.rodata)
         *(.rodata.*)
+    }
+
+    .got : {
         *(.got)
         *(.got.*)
     }
