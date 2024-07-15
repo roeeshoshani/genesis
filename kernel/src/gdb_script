@@ -5,8 +5,20 @@ define hook-stop
 x/4i $pc
 end
 
-symbol-file loader/target/target/release/loader
+add-symbol-file loader/target/target/release/loader
 
 target remote localhost:1234
 
 
+define hook-add-symbol-file
+set confirm off
+end
+
+define hookpost-add-symbol-file
+set confirm on
+end
+
+add-symbol-file core/target/target/debug/core 0x80400000
+
+hb _start
+c

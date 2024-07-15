@@ -1,11 +1,16 @@
-use std::{os::unix::process::CommandExt, path::Path};
+use std::{os::unix::process::CommandExt, path::Path, str::FromStr};
 
 use anyhow::{bail, Context, Result};
 use binary_serde::{BinarySerde, BinarySerializerToVec};
 use clap::Parser;
-use devx_cmd::{cmd, run, Cmd};
-use elflib::{ArchBitLength, ElfParser, Rel, RelocationType, SectionData, SectionHeaderType};
+use devx_cmd::{cmd, run};
+use elflib::{ArchBitLength, ElfParser, Rel, RelocationType, SectionData};
 use loader_shared::LoaderInfoHeader;
+
+const PRE_POST_PROCESSING_KERNEL_FILE_PATH: &str = "target/target/debug/pre_post_processing_kernel";
+const FINAL_KERNEL_FILE_PATH: &str = "target/target/debug/kernel";
+const KERNEL_ELF_FILE_PATH: &str = "core/target/target/debug/core";
+const LOADER_ELF_FILE_PATH: &str = "loader/target/target/release/loader";
 
 #[derive(Parser)]
 enum Cli {
@@ -29,6 +34,27 @@ fn main_fallible() -> Result<()> {
     Ok(())
 }
 
+/// a wrapper which provides nicer errors.
+fn read_file_to_string<P: AsRef<Path>>(path: P) -> Result<String> {
+    std::fs::read_to_string(path.as_ref())
+        .context(format!("failed to read file {}", path.as_ref().display()))
+}
+
+/// a wrapper which provides nicer errors.
+fn read_file<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
+    std::fs::read(path.as_ref()).context(format!("failed to read file {}", path.as_ref().display()))
+}
+
+fn read_and_parse_file<T: FromStr, P: AsRef<Path>>(path: P) -> Result<T>
+where
+    <T as FromStr>::Err: Sync + Send + std::error::Error + 'static,
+{
+    read_file_to_string(path.as_ref())?.parse().context(format!(
+        "failed to parse content of file {}",
+        path.as_ref().display()
+    ))
+}
+
 fn gdb() -> Result<()> {
     let error = std::process::Command::new("gdb-multiarch")
         .arg("-x")
@@ -42,7 +68,7 @@ fn run() -> Result<()> {
     run!(
         "qemu-system-mipsel",
         "-bios",
-        "target/target/debug/kernel",
+        FINAL_KERNEL_FILE_PATH,
         "-S",
         "-s",
         "--nographic"
@@ -72,19 +98,16 @@ fn build() -> Result<()> {
     let kernel_content = build_and_pack_kelf_content()?;
 
     // write the pre post-processing content
-    let pre_post_processing_kernel_path = "target/target/debug/pre_post_processing_kernel";
-    creare_parent_dirs_and_write_file(pre_post_processing_kernel_path, kernel_content.as_slice())
-        .context(format!(
-        "failed to write pre post-processing kernel file {pre_post_processing_kernel_path}"
-    ))?;
+    creare_parent_dirs_and_write_file(
+        PRE_POST_PROCESSING_KERNEL_FILE_PATH,
+        kernel_content.as_slice(),
+    )?;
 
     // post process the content
     let post_processed_content = post_process_kernel_content(kernel_content);
 
     // write the final content to a file.
-    let packed_kernel_path = "target/target/debug/kernel";
-    creare_parent_dirs_and_write_file(packed_kernel_path, post_processed_content)
-        .context(format!("failed to write kernel file {packed_kernel_path}"))?;
+    creare_parent_dirs_and_write_file(FINAL_KERNEL_FILE_PATH, post_processed_content)?;
 
     Ok(())
 }
@@ -104,11 +127,10 @@ fn post_process_kernel_content(mut content: Vec<u8>) -> Vec<u8> {
 fn build_and_pack_kelf_content() -> Result<Vec<u8>> {
     let loader_code = build_and_extract_loader_code()?;
     cmd!("cargo", "build").current_dir("core").run()?;
-    let kelf_path = "core/target/target/debug/core";
-    let kelf_content =
-        std::fs::read(kelf_path).context(format!("failed to read kernel elf file {kelf_path}"))?;
-    pack_kelf_file(&kelf_content, &loader_code)
-        .context(format!("failed to pack kernel elf file {kelf_path}"))
+    let kelf_content = read_file(KERNEL_ELF_FILE_PATH)?;
+    pack_kelf_file(&kelf_content, &loader_code).context(format!(
+        "failed to pack kernel elf file {KERNEL_ELF_FILE_PATH}"
+    ))
 }
 
 fn build_and_extract_loader_code() -> Result<Vec<u8>> {
@@ -117,12 +139,10 @@ fn build_and_extract_loader_code() -> Result<Vec<u8>> {
     cmd!("cargo", "build", "--release")
         .current_dir("loader")
         .run()?;
-    let loader_elf_path = "loader/target/target/release/loader";
-    let loader_elf_content = std::fs::read(loader_elf_path)
-        .context(format!("failed to read loader elf file {loader_elf_path}"))?;
+    let loader_elf_content = read_file(LOADER_ELF_FILE_PATH)?;
     Ok(get_first_phdr_content(&loader_elf_content)
         .context(format!(
-            "failed to extract loader code from loader elf file {loader_elf_path}"
+            "failed to extract loader code from loader elf file {LOADER_ELF_FILE_PATH}"
         ))?
         .to_vec())
 }
@@ -158,7 +178,7 @@ fn pack_kelf_file(kelf_content: &[u8], loader_code: &[u8]) -> Result<Vec<u8>> {
         .buffer_mut()
         .extend_from_slice(&rels_info.encoded_rels);
 
-    // add the wrapper code
+    // add the wrapped code
     serializer
         .buffer_mut()
         .extend_from_slice(&phdrs_info.full_content);
