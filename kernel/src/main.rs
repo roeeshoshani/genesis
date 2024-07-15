@@ -20,7 +20,7 @@ enum Cli {
 }
 fn main() {
     if let Err(err) = main_fallible() {
-        eprintln!("error: {}", err);
+        eprintln!("error: {:?}", err);
     }
 }
 
