@@ -53,10 +53,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "hal"
+version = "0.1.0"
+dependencies = [
+ "bitpiece",
+]
+
+[[package]]
 name = "loader"
 version = "0.1.0"
 dependencies = [
  "bitpiece",
+ "hal",
  "loader_shared",
 ]
 

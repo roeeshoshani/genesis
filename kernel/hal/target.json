@@ -1,0 +1,22 @@
+{
+  "arch": "mips",
+  "cpu": "mips32r2",
+  "crt-objects-fallback": "false",
+  "data-layout": "e-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
+  "emit-debug-gdb-scripts": false,
+  "features": "+mips32r2,+soft-float",
+  "linker": "rust-lld",
+  "linker-flavor": "gnu-lld",
+  "llvm-target": "mipsel-unknown-none",
+  "code-model": "small",
+  "max-atomic-width": 32,
+  "metadata": {
+    "description": null,
+    "host_tools": null,
+    "std": null,
+    "tier": null
+  },
+  "panic-strategy": "abort",
+  "relocation-model": "static",
+  "target-pointer-width": "32"
+}

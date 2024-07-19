@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 bitpiece = "0.1.1"
 loader_shared = { path = "../loader_shared" }
+hal = { path = "../hal" }
 
 [profile.release]
 debug = true
