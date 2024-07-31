@@ -1,6 +1,7 @@
 #![no_std]
 #![feature(asm_experimental_arch)]
 #![feature(asm_const)]
+#![feature(const_option)]
 
 use bitpiece::*;
 use paste::paste;
@@ -123,6 +124,16 @@ impl VirtAddr {
         };
         Some(PhysAddr(off))
     }
+
+    /// converts this virtual address to a pointer.
+    pub const unsafe fn as_ptr<T>(self) -> *const T {
+        self.0 as *const T
+    }
+
+    /// converts this virtual address to a mutable pointer.
+    pub const unsafe fn as_mut_ptr<T>(self) -> *mut T {
+        self.0 as *mut T
+    }
 }
 
 /// a region of virtual memory.
@@ -180,6 +191,13 @@ pub const KSEG1: VirtMemRegion = VirtMemRegion {
 
 /// the size of the kernel stack.
 pub const STACK_SIZE: usize = 4 * 1024 * 1024;
+
+/// the base physical address of the UART registers.
+pub const UART_REGISTERS_BASE_PHYS_ADDR: PhysAddr = PhysAddr(0x1F00_0900);
+
+/// the base virtual address of the UART registers. that virtual address in in kseg1 so that it is not cachable, which is important for
+/// mmio addresses.
+pub const UART_REGISTERS_BASE_ADDR: VirtAddr = UART_REGISTERS_BASE_PHYS_ADDR.kseg1_addr().unwrap();
 
 /// the register group of a coprocessor 0 register.
 /// this can be combines with a `select` value to get a percise register address.
