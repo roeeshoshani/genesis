@@ -55,7 +55,7 @@ unsafe extern "C" fn loader_entrypoint() {
 
     // copy the wrapped kernel code from ROM to RAM so that we can relocate it.
     // put the kernel at a physical address which is right after the end of the stack. map it using kseg0 so that it will be cached.
-    let kernel_dst_addr = (KSEG0_START + STACK_SIZE) as *mut u8;
+    let kernel_dst_addr = (KSEG0.start.0 + STACK_SIZE) as *mut u8;
     kernel_dst_addr.copy_from_nonoverlapping(wrapped_code_ptr, info.initialized_size as usize);
 
     for relocation in relocations {
@@ -78,7 +78,7 @@ unsafe extern "C" fn loader_entrypoint() {
 
 /// switch the stack from pointing to kseg1 to pointing the same physical address but in kseg0 so that it points to cachable memory.
 fn make_stack_cachable() {
-    let stack_cachable_offset = KSEG0_START.wrapping_sub(KSEG1_START);
+    let stack_cachable_offset = KSEG0.start.0.wrapping_sub(KSEG1.start.0);
     unsafe {
         asm!(
             ".set noat",
@@ -100,7 +100,7 @@ fn initialize_cache() {
 
         // write the zeroed out tag to all dcache entries
         for line_index in 0..dcache.total_lines_amount() {
-            let flush_addr = KSEG0_START + line_index * dcache.line_size().value();
+            let flush_addr = KSEG0.start + line_index * dcache.line_size().value();
             cache_insn!(
                 CacheInsnOp {
                     cache_type: CacheType::PrimaryData,
@@ -119,7 +119,7 @@ fn initialize_cache() {
 
         // write the zeroed out tag to all icache entries
         for line_index in 0..icache.total_lines_amount() {
-            let flush_addr = KSEG0_START + line_index * icache.line_size().value();
+            let flush_addr = KSEG0.start + line_index * icache.line_size().value();
             cache_insn!(
                 CacheInsnOp {
                     cache_type: CacheType::PrimaryInstruction,

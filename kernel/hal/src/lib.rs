@@ -3,9 +3,182 @@
 #![feature(asm_const)]
 
 use bitpiece::*;
+use paste::paste;
 
-pub const KSEG0_START: usize = 0x8000_0000;
-pub const KSEG1_START: usize = 0xa000_0000;
+macro_rules! impl_newtype_operator_full {
+    { $newtype: ty, $operator: ident, $fn_name: expr, $operand: ty, $lhs_var_name: ident, $rhs_var_name: ident, $result: expr } => {
+        paste! {
+            impl ::core::ops::$operator < $operand > for $newtype {
+                type Output = Self;
+                fn $fn_name(self, $rhs_var_name: $operand) -> Self::Output {
+                    let $lhs_var_name = self.0;
+                    Self($result)
+                }
+            }
+            impl ::core::ops::[<$operator Assign>] < $operand > for $newtype {
+                fn [<$fn_name _assign>](&mut self, $rhs_var_name: $operand) {
+                    let $lhs_var_name = self.0;
+                    self.0 = $result;
+                }
+            }
+        }
+    };
+}
+macro_rules! impl_newtype_binary_operator {
+    { $newtype: ty, $operator: ident, $fn_name: ident, $operand: ty } => {
+        impl_newtype_operator_full! {
+            $newtype,
+            $operator,
+            $fn_name,
+            $operand,
+            lhs,
+            rhs,
+            <$operand as ::core::ops::$operator>::$fn_name(lhs, rhs)
+        }
+    };
+}
+macro_rules! impl_newtype_unary_operator {
+    { $newtype: ty, $operator: ident, $fn_name: ident, $inner_ty: ty } => {
+        impl ::core::ops::$operator for $newtype {
+            type Output = Self;
+            fn $fn_name(self) -> Self::Output {
+                Self(<$inner_ty as ::core::ops::$operator>::$fn_name(self.0))
+            }
+        }
+    };
+}
+macro_rules! impl_newtype_all_operators {
+    { $newtype: ty, $inner_ty: ty } => {
+        impl_newtype_binary_operator! { $newtype, Add, add, $inner_ty }
+        impl_newtype_binary_operator! { $newtype, Sub, sub, $inner_ty }
+        impl_newtype_binary_operator! { $newtype, Div, div, $inner_ty }
+        impl_newtype_binary_operator! { $newtype, Rem, rem, $inner_ty }
+        impl_newtype_binary_operator! { $newtype, Mul, mul, $inner_ty }
+        impl_newtype_binary_operator! { $newtype, Shr, shr, $inner_ty }
+        impl_newtype_binary_operator! { $newtype, Shl, shl, $inner_ty }
+        impl_newtype_binary_operator! { $newtype, BitAnd, bitand, $inner_ty }
+        impl_newtype_binary_operator! { $newtype, BitOr, bitor, $inner_ty }
+        impl_newtype_binary_operator! { $newtype, BitXor, bitxor, $inner_ty }
+        impl_newtype_unary_operator! { $newtype, Not, not, $inner_ty }
+    };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct PhysAddr(pub usize);
+impl_newtype_all_operators! { PhysAddr, usize }
+impl PhysAddr {
+    /// creates a new physical address with the given value.
+    pub const fn new(value: usize) -> Self {
+        Self(value)
+    }
+
+    /// returns the virtual kseg0 address which maps to this physical address, if such an address even exists.
+    /// if the physical address is too large to fit in kseg0, `None` is returned.
+    pub const fn kseg0_addr(self) -> Option<VirtAddr> {
+        KSEG0.addr_at_offset(self.0)
+    }
+
+    /// returns the virtual kseg1 address which maps to this physical address, if such an address even exists.
+    /// if the physical address is too large to fit in kseg1, `None` is returned.
+    pub const fn kseg1_addr(self) -> Option<VirtAddr> {
+        KSEG1.addr_at_offset(self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct VirtAddr(pub usize);
+impl_newtype_all_operators! { VirtAddr, usize }
+impl VirtAddr {
+    /// creates a new virtual address with the given value.
+    pub const fn new(value: usize) -> Self {
+        Self(value)
+    }
+
+    /// returns the offset of this virtual address in kseg0, if it is in kseg0.
+    pub const fn kseg0_off(self) -> Option<usize> {
+        KSEG0.offset_of_addr(self)
+    }
+
+    /// returns the physical address of this virtual address in kseg0, if it is in kseg0.
+    pub const fn kseg0_phys_addr(self) -> Option<PhysAddr> {
+        // can't use `?` here since using it in const functions is not stable yet.
+        let Some(off) = self.kseg0_off() else {
+            return None;
+        };
+        Some(PhysAddr(off))
+    }
+
+    /// returns the offset of this virtual address in kseg1, if it is in kseg1.
+    pub const fn kseg1_off(self) -> Option<usize> {
+        KSEG1.offset_of_addr(self)
+    }
+
+    /// returns the physical address of this virtual address in kseg1, if it is in kseg1.
+    pub const fn kseg1_phys_addr(self) -> Option<PhysAddr> {
+        // can't use `?` here since using it in const functions is not stable yet.
+        let Some(off) = self.kseg1_off() else {
+            return None;
+        };
+        Some(PhysAddr(off))
+    }
+}
+
+/// a region of virtual memory.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct VirtMemRegion {
+    /// the start address of the region.
+    pub start: VirtAddr,
+
+    /// the end address of the region.
+    pub end: VirtAddr,
+}
+impl VirtMemRegion {
+    /// returns the size of the region
+    pub const fn size(&self) -> usize {
+        self.end.0 - self.start.0
+    }
+
+    /// returns whether this memory region contains the given address
+    pub const fn contains(&self, addr: VirtAddr) -> bool {
+        addr.0 >= self.start.0 && addr.0 < self.end.0
+    }
+
+    /// returns the offset of the given address within this memory region, if the address is within this memory region.
+    pub const fn offset_of_addr(&self, addr: VirtAddr) -> Option<usize> {
+        if !self.contains(addr) {
+            return None;
+        }
+        Some(addr.0 - self.start.0)
+    }
+
+    /// returns the address at the given offset from the start of the region if the offset is within the bounds of the region.
+    pub const fn addr_at_offset(&self, offset: usize) -> Option<VirtAddr> {
+        if offset >= self.size() {
+            return None;
+        }
+        // can't use `?` here since using it in const functions is not stable yet.
+        let Some(addr) = self.start.0.checked_add(offset) else {
+            return None;
+        };
+        Some(VirtAddr(addr))
+    }
+}
+
+/// the kseg0 memory region. this is an unmapped and uncached memory region.
+pub const KSEG0: VirtMemRegion = VirtMemRegion {
+    start: VirtAddr(0x8000_0000),
+    end: VirtAddr(0xa000_0000),
+};
+
+/// the kseg1 memory region. this is an unmapped but cached memory region.
+pub const KSEG1: VirtMemRegion = VirtMemRegion {
+    start: VirtAddr(0xa000_0000),
+    end: VirtAddr(0xc000_0000),
+};
+
+/// the size of the kernel stack.
 pub const STACK_SIZE: usize = 4 * 1024 * 1024;
 
 /// the register group of a coprocessor 0 register.
@@ -135,13 +308,14 @@ macro_rules! cache_insn {
     ($op: expr, $addr: expr) => {
         {
             let _ : CacheInsnOp = $op;
+            let _ : VirtAddr = $addr;
             unsafe {
                 ::core::arch::asm!(
                     ".set noat",
                     "cache {op}, 0({addr})",
                     ".set at",
                     op = const { $op.encode() },
-                    addr = in(reg) ($addr),
+                    addr = in(reg) ($addr).0,
                     options(nomem, preserves_flags, nostack),
                 )
             }

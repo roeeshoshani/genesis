@@ -67,11 +67,11 @@ fn run() -> Result<()> {
     build()?;
     run!(
         "qemu-system-mipsel",
+        "-M",
+        "malta",
         "-bios",
         FINAL_KERNEL_FILE_PATH,
-        "-S",
-        "-s",
-        "--nographic"
+        "-s"
     )?;
     Ok(())
 }
