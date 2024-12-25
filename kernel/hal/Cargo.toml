@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bitpiece = "0.1.1"
+bitpiece = "0.1.2"
 paste = "1.0.15"
