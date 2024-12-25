@@ -26,7 +26,35 @@ extern "C" {
     fn get_reference_point_addr() -> *mut u8;
 }
 
-global_asm!(include_str!("boot.S"));
+// the loader's bootstrap code.
+// it is written in assembly because we don't yet have a stack set up, and we need to do some manual stuff.
+global_asm!(
+    // put the entrypoint code in the `.text.boot` section which will be placed first in the final binary.
+    ".section .text.boot",
+    // define a symbol for the loader's entrypoint. this will be the entrypoint of the loader's elf.
+    ".globl loader_start",
+    "loader_start:",
+    // currently we are at address 0xbfc00000. this is where the processor begins execution.
+    //
+    // at 0xbfc00010 we there is a hole in the flash mmmio, which instead of decoding to flash, decodes to the address revision register.
+    // we don't want our code to collide with this hole, so we skip it.
+    "b after_hole",
+    "nop",
+    "nop",
+    "nop",
+    "after_hole:",
+    // set up the stack by making it point to some offset from the start of the physical address space.
+    //
+    // the first 128MB at the start of the physical address space are all mapped to ram, so this ensures that our stack will use ram.
+    //
+    // we are pointing to that physical address through kseg1, which is uncached, since cache is not yet initialized.
+    "li $sp, ({KSEG1_START} + {STACK_SIZE})",
+    "b loader_entrypoint",
+    // undo the `.section` directive that we used at the start.
+    ".previous",
+    KSEG1_START = const { KSEG1.start.0 },
+    STACK_SIZE = const { STACK_SIZE },
+);
 
 /// the entrypoint of the shellcode loader.
 #[no_mangle]
