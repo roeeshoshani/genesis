@@ -11,3 +11,4 @@ hal = { path = "../hal" }
 [profile.release]
 debug = true
 strip = "none"
+lto = true
