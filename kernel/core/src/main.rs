@@ -25,8 +25,7 @@ fn uart_set_baud_rate_divisor(divisor: u16) {
     uart_set_divisor_latch_access(false);
 }
 
-#[no_mangle]
-extern "C" fn _start() {
+fn uart_init() {
     // disable interrupts to use polled mode
     UartRegs::interrupt_enable().write(UartInterruptEnableReg::from_fields(
         UartInterruptEnableRegFields {
@@ -61,17 +60,25 @@ extern "C" fn _start() {
         enable_break_condition: false,
         enable_divisor_latch_access: false,
     }));
-
-    loop {
-        let line_status = UartRegs::line_status().read();
-        if !line_status.is_data_ready() {
-            continue;
-        }
-        let _byte = UartRegs::rx().read();
-        loop {
-            foo()
-        }
-    }
 }
 
-fn foo() {}
+fn uart_read_byte() -> u8 {
+    while !UartRegs::line_status().read().is_data_ready() {}
+    UartRegs::rx().read()
+}
+
+fn uart_write_byte(byte: u8) {
+    while !UartRegs::line_status()
+        .read()
+        .is_transmitter_holding_register_empty()
+    {}
+    UartRegs::tx().write(byte)
+}
+#[no_mangle]
+extern "C" fn _start() {
+    uart_init();
+    loop {
+        let byte = uart_read_byte();
+        uart_write_byte(byte);
+    }
+}
