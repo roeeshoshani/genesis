@@ -10,6 +10,21 @@ fn panic(_: &PanicInfo) -> ! {
     loop {}
 }
 
+fn uart_set_divisor_latch_access(value: bool) {
+    let mut line_control_value = UartRegs::line_control().read();
+    line_control_value.set_enable_divisor_latch_access(value);
+    UartRegs::line_control().write(line_control_value);
+}
+
+fn uart_set_baud_rate_divisor(divisor: u16) {
+    let [divisor_lsb, divisor_msb] = divisor.to_le_bytes();
+
+    uart_set_divisor_latch_access(true);
+    UartRegs::divisor_latch_lsb().write(divisor_lsb);
+    UartRegs::divisor_latch_msb().write(divisor_msb);
+    uart_set_divisor_latch_access(false);
+}
+
 #[no_mangle]
 extern "C" fn _start() {
     // disable interrupts to use polled mode
@@ -32,6 +47,9 @@ extern "C" fn _start() {
         dma_mode_select: BitPiece::zeroed(),
         reserved: BitPiece::zeroed(),
     }));
+
+    // set the divisor to 1 to achieve a baud rate of 115200
+    uart_set_baud_rate_divisor(1);
 
     // configure the line parameters
     UartRegs::line_control().write(UartLineControlReg::from_fields(UartLineControlRegFields {

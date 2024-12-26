@@ -19,6 +19,7 @@ impl UartRegs {
     pub const BASE_VIRT_ADDR: VirtAddr = UartRegs::BASE_PHYS_ADDR.kseg1_addr().unwrap();
 
     /// the RX register.
+    /// this is only accessible if the divisor latch access bit is not set.
     pub fn rx() -> VolatilePtr<'static, u8, ReadOnly> {
         unsafe {
             VolatilePtr::new_restricted(
@@ -29,6 +30,7 @@ impl UartRegs {
     }
 
     /// the TX register.
+    /// this is only accessible if the divisor latch access bit is not set.
     pub fn tx() -> VolatilePtr<'static, u8, WriteOnly> {
         unsafe {
             VolatilePtr::new_restricted(
@@ -114,6 +116,28 @@ impl UartRegs {
             VolatilePtr::new_restricted(
                 ReadWrite,
                 NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x38).as_mut()),
+            )
+        }
+    }
+
+    /// the DLL (divisor latch lsb) register.
+    /// this is only accessible if the divisor latch access bit is set.
+    pub fn divisor_latch_lsb() -> VolatilePtr<'static, u8, ReadWrite> {
+        unsafe {
+            VolatilePtr::new_restricted(
+                ReadWrite,
+                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x0).as_mut()),
+            )
+        }
+    }
+
+    /// the DLL (divisor latch msb) register.
+    /// this is only accessible if the divisor latch access bit is set.
+    pub fn divisor_latch_msb() -> VolatilePtr<'static, u8, ReadWrite> {
+        unsafe {
+            VolatilePtr::new_restricted(
+                ReadWrite,
+                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x8).as_mut()),
             )
         }
     }
