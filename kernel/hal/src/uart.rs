@@ -1,4 +1,10 @@
+use core::ptr::NonNull;
+
 use bitpiece::*;
+use volatile::{
+    access::{ReadOnly, ReadWrite, WriteOnly},
+    VolatilePtr,
+};
 
 use crate::{PhysAddr, VirtAddr};
 
@@ -12,49 +18,110 @@ impl UartRegs {
     /// that virtual address in in kseg1 so that it is not cachable, which is important for mmio addresses.
     pub const BASE_VIRT_ADDR: VirtAddr = UartRegs::BASE_PHYS_ADDR.kseg1_addr().unwrap();
 
-    /// the RXTX register.
-    pub fn rxtx() -> &'static mut u8 {
-        unsafe { (Self::BASE_VIRT_ADDR + 0x0).as_mut() }
+    /// the RX register.
+    pub fn rx() -> VolatilePtr<'static, u8, ReadOnly> {
+        unsafe {
+            VolatilePtr::new_restricted(
+                ReadOnly,
+                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x0).as_mut()),
+            )
+        }
     }
 
-    /// the INTEN register.
-    pub fn inten() -> &'static mut u8 {
-        unsafe { (Self::BASE_VIRT_ADDR + 0x8).as_mut() }
+    /// the TX register.
+    pub fn tx() -> VolatilePtr<'static, u8, WriteOnly> {
+        unsafe {
+            VolatilePtr::new_restricted(
+                WriteOnly,
+                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x0).as_mut()),
+            )
+        }
     }
 
-    /// the IIFOFO register.
-    pub fn iififo() -> &'static mut u8 {
-        unsafe { (Self::BASE_VIRT_ADDR + 0x10).as_mut() }
+    /// the INTEN (interrupt enable) register.
+    pub fn inten() -> VolatilePtr<'static, UartInterruptEnableReg, ReadWrite> {
+        unsafe {
+            VolatilePtr::new_restricted(
+                ReadWrite,
+                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x8).as_mut()),
+            )
+        }
     }
 
-    /// the LCTRL register.
-    pub fn lctrl() -> &'static mut u8 {
-        unsafe { (Self::BASE_VIRT_ADDR + 0x18).as_mut() }
+    /// the II (interrup identification) register.
+    pub fn interrupt_id() -> VolatilePtr<'static, UartInterruptIdReg, ReadOnly> {
+        unsafe {
+            VolatilePtr::new_restricted(
+                ReadOnly,
+                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x10).as_mut()),
+            )
+        }
     }
 
-    /// the MCTRL register.
-    pub fn mctrl() -> &'static mut u8 {
-        unsafe { (Self::BASE_VIRT_ADDR + 0x20).as_mut() }
+    /// the FIFO (fifo control) register.
+    pub fn fifo() -> VolatilePtr<'static, UartFifoControlReg, WriteOnly> {
+        unsafe {
+            VolatilePtr::new_restricted(
+                WriteOnly,
+                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x10).as_mut()),
+            )
+        }
     }
 
-    /// the LSTAT register.
-    pub fn lstat() -> &'static mut u8 {
-        unsafe { (Self::BASE_VIRT_ADDR + 0x28).as_mut() }
+    /// the LCTRL (line control) register.
+    pub fn lctrl() -> VolatilePtr<'static, UartLineControlReg, ReadWrite> {
+        unsafe {
+            VolatilePtr::new_restricted(
+                ReadWrite,
+                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x18).as_mut()),
+            )
+        }
+    }
+
+    /// the MCTRL (modem control) register.
+    pub fn mctrl() -> VolatilePtr<'static, UartModemControlReg, ReadWrite> {
+        unsafe {
+            VolatilePtr::new_restricted(
+                ReadWrite,
+                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x20).as_mut()),
+            )
+        }
+    }
+
+    /// the LSTAT (line status) register.
+    pub fn lstat() -> VolatilePtr<'static, UartLineStatusReg, ReadWrite> {
+        unsafe {
+            VolatilePtr::new_restricted(
+                ReadWrite,
+                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x28).as_mut()),
+            )
+        }
     }
 
     /// the MSTAT register.
-    pub fn mstat() -> &'static mut u8 {
-        unsafe { (Self::BASE_VIRT_ADDR + 0x30).as_mut() }
+    pub fn mstat() -> VolatilePtr<'static, UartModemStatusReg, ReadWrite> {
+        unsafe {
+            VolatilePtr::new_restricted(
+                ReadWrite,
+                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x30).as_mut()),
+            )
+        }
     }
 
     /// the SCRATCH register.
-    pub fn scratch() -> &'static mut u8 {
-        unsafe { (Self::BASE_VIRT_ADDR + 0x38).as_mut() }
+    pub fn scratch() -> VolatilePtr<'static, u8, ReadWrite> {
+        unsafe {
+            VolatilePtr::new_restricted(
+                ReadWrite,
+                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x38).as_mut()),
+            )
+        }
     }
 }
 
 /// the UART interrupt enable register. this is a read-write register.
 #[bitpiece(8)]
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct UartInterruptEnableReg {
     pub is_received_data_available_interrupt_enabled: bool,
@@ -66,6 +133,7 @@ pub struct UartInterruptEnableReg {
 
 /// the UART interrupt identification register. this is a read-only register.
 #[bitpiece(8)]
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct UartInterruptIdReg {
     pub interrupt_status: UartInterruptStatus,
@@ -76,6 +144,7 @@ pub struct UartInterruptIdReg {
 
 /// the UART FIFO-control register. this is a write-only register.
 #[bitpiece(8)]
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct UartFifoControlReg {
     pub is_fifo_enabled: bool,
@@ -89,6 +158,7 @@ pub struct UartFifoControlReg {
 
 /// the UART line-control register. this is a read-write register.
 #[bitpiece(8)]
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct UartLineControlReg {
     pub word_length: UartWordLength,
@@ -102,6 +172,7 @@ pub struct UartLineControlReg {
 
 /// the UART modem-control register. this is a read-write register.
 #[bitpiece(8)]
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct UartModemControlReg {
     pub data_terminal_ready: B1,
@@ -114,6 +185,7 @@ pub struct UartModemControlReg {
 
 /// the UART line status register. this is a read-write register.
 #[bitpiece(8)]
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct UartLineStatusReg {
     pub is_data_ready: bool,
@@ -126,6 +198,7 @@ pub struct UartLineStatusReg {
 
 /// the UART modem status register. this is a read-write register.
 #[bitpiece(8)]
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct UartModemStatusReg {
     pub has_clear_to_send_changed: bool,

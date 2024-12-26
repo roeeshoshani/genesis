@@ -29,6 +29,7 @@ version = "0.1.0"
 dependencies = [
  "bitpiece",
  "paste",
+ "volatile",
 ]
 
 [[package]]
@@ -71,3 +72,9 @@ name = "unicode-ident"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
+
+[[package]]
+name = "volatile"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af8ca9a5d4debca0633e697c88269395493cebf2e10db21ca2dbde37c1356452"
