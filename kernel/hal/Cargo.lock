@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "bitpiece"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f89d5591e51d4912a27267b4e97f618814f34dad5b485e1ac1459a8d34e9bf1a"
+checksum = "22c598370e493afb3d00c569f47c3355dc6c7a08bd228de35dfcd316e49a6878"
 dependencies = [
  "bitpiece_macros",
  "paste",
@@ -14,9 +14,9 @@ dependencies = [
 
 [[package]]
 name = "bitpiece_macros"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "368fdc5e545deab633fb08e4e0f2ef0f583622b5455c7d27213414d9a4650d71"
+checksum = "4382351114a212f40a2df9c4e119865b399d004f8ae5c705375be695b353ea03"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bitpiece = "0.1.2"
+bitpiece = "0.1.6"
 paste = "1.0.15"
 volatile = "0.6.1"

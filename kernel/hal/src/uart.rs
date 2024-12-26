@@ -39,7 +39,7 @@ impl UartRegs {
     }
 
     /// the INTEN (interrupt enable) register.
-    pub fn inten() -> VolatilePtr<'static, UartInterruptEnableReg, ReadWrite> {
+    pub fn interrupt_enable() -> VolatilePtr<'static, UartInterruptEnableReg, ReadWrite> {
         unsafe {
             VolatilePtr::new_restricted(
                 ReadWrite,
@@ -59,7 +59,7 @@ impl UartRegs {
     }
 
     /// the FIFO (fifo control) register.
-    pub fn fifo() -> VolatilePtr<'static, UartFifoControlReg, WriteOnly> {
+    pub fn fifo_control() -> VolatilePtr<'static, UartFifoControlReg, WriteOnly> {
         unsafe {
             VolatilePtr::new_restricted(
                 WriteOnly,
@@ -69,7 +69,7 @@ impl UartRegs {
     }
 
     /// the LCTRL (line control) register.
-    pub fn lctrl() -> VolatilePtr<'static, UartLineControlReg, ReadWrite> {
+    pub fn line_control() -> VolatilePtr<'static, UartLineControlReg, ReadWrite> {
         unsafe {
             VolatilePtr::new_restricted(
                 ReadWrite,
@@ -79,7 +79,7 @@ impl UartRegs {
     }
 
     /// the MCTRL (modem control) register.
-    pub fn mctrl() -> VolatilePtr<'static, UartModemControlReg, ReadWrite> {
+    pub fn modem_control() -> VolatilePtr<'static, UartModemControlReg, ReadWrite> {
         unsafe {
             VolatilePtr::new_restricted(
                 ReadWrite,
@@ -89,7 +89,7 @@ impl UartRegs {
     }
 
     /// the LSTAT (line status) register.
-    pub fn lstat() -> VolatilePtr<'static, UartLineStatusReg, ReadWrite> {
+    pub fn line_status() -> VolatilePtr<'static, UartLineStatusReg, ReadWrite> {
         unsafe {
             VolatilePtr::new_restricted(
                 ReadWrite,
@@ -98,8 +98,8 @@ impl UartRegs {
         }
     }
 
-    /// the MSTAT register.
-    pub fn mstat() -> VolatilePtr<'static, UartModemStatusReg, ReadWrite> {
+    /// the MSTAT (modem status) register.
+    pub fn modem_status() -> VolatilePtr<'static, UartModemStatusReg, ReadWrite> {
         unsafe {
             VolatilePtr::new_restricted(
                 ReadWrite,
@@ -121,8 +121,7 @@ impl UartRegs {
 
 /// the UART interrupt enable register. this is a read-write register.
 #[bitpiece(8)]
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct UartInterruptEnableReg {
     pub is_received_data_available_interrupt_enabled: bool,
     pub is_transmitter_holding_register_empty_interrupt_enabled: bool,
@@ -133,7 +132,6 @@ pub struct UartInterruptEnableReg {
 
 /// the UART interrupt identification register. this is a read-only register.
 #[bitpiece(8)]
-#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct UartInterruptIdReg {
     pub interrupt_status: UartInterruptStatus,
@@ -144,21 +142,18 @@ pub struct UartInterruptIdReg {
 
 /// the UART FIFO-control register. this is a write-only register.
 #[bitpiece(8)]
-#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct UartFifoControlReg {
     pub is_fifo_enabled: bool,
-    pub receiver_fifo_reset: B1,
-    pub transmitter_fifo_reset: B1,
+    pub receiver_fifo_reset: bool,
+    pub transmitter_fifo_reset: bool,
     pub dma_mode_select: B1,
     pub reserved: B2,
-    pub receiver_trigger_lsb: B1,
-    pub receiver_trigger_msb: B1,
+    pub receiver_trigger_level: UartFifoReceiverTriggerLevel,
 }
 
 /// the UART line-control register. this is a read-write register.
 #[bitpiece(8)]
-#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct UartLineControlReg {
     pub word_length: UartWordLength,
@@ -172,7 +167,6 @@ pub struct UartLineControlReg {
 
 /// the UART modem-control register. this is a read-write register.
 #[bitpiece(8)]
-#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct UartModemControlReg {
     pub data_terminal_ready: B1,
@@ -185,7 +179,6 @@ pub struct UartModemControlReg {
 
 /// the UART line status register. this is a read-write register.
 #[bitpiece(8)]
-#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct UartLineStatusReg {
     pub is_data_ready: bool,
@@ -193,12 +186,11 @@ pub struct UartLineStatusReg {
     pub has_break_interrupt_occured: bool,
     pub is_transmitter_holding_register_empty: bool,
     pub is_transmitter_empty: bool,
-    pub has_any_error_in_fifo_mode: bool,
+    pub has_error_in_receiver_fifo: bool,
 }
 
 /// the UART modem status register. this is a read-write register.
 #[bitpiece(8)]
-#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct UartModemStatusReg {
     pub has_clear_to_send_changed: bool,
@@ -233,6 +225,26 @@ pub enum UartWordLength {
 
     /// word length of 8 bits
     L8 = 3,
+}
+
+/// the trigger level of a FIFO receiver.
+///
+/// this value determines how many bytes must be present in the RX FIFO before the UART generates an interrupt or sets a flag
+/// indicating data is ready to be read.
+#[bitpiece(2)]
+#[derive(Debug, Clone, Copy)]
+pub enum UartFifoReceiverTriggerLevel {
+    /// trigger level is 1 byte
+    B1 = 0b00,
+
+    /// trigger level is 4 bytes
+    B4 = 0b01,
+
+    /// trigger level is 8 bytes
+    B8 = 0b10,
+
+    /// trigger level is 14 bytes
+    B14 = 0b11,
 }
 
 #[bitpiece(1)]
