@@ -67,10 +67,22 @@ fn run() -> Result<()> {
     build()?;
     run!(
         "qemu-system-mipsel",
+        // use the malta machine
         "-M",
         "malta",
+        // the malta FPGA UART serial uses the third serial port, and we don't really care about the first two serial ports,
+        // so ignore them.
+        "-serial",
+        "null",
+        "-serial",
+        "null",
+        // open the FPGA UART serial in a virtual console (as part of qemu's GUI).
+        "-serial",
+        "vc",
+        // provide the final kernel file as the firmware for the emulator
         "-bios",
         FINAL_KERNEL_FILE_PATH,
+        // gdb stub on tcp port 1234
         "-s"
     )?;
     Ok(())
