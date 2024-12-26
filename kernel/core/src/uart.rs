@@ -82,8 +82,6 @@ impl core::fmt::Write for UartWriter {
     }
 }
 
-static UART_WRITER: SpinMutex<UartWriter> = SpinMutex::new(UartWriter);
-
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => ($crate::uart::_print(format_args!($($arg)*)));
@@ -98,5 +96,5 @@ macro_rules! println {
 #[doc(hidden)]
 pub fn _print(args: core::fmt::Arguments) {
     use core::fmt::Write;
-    UART_WRITER.lock().write_fmt(args).unwrap();
+    UartWriter.write_fmt(args).unwrap();
 }
