@@ -2,7 +2,7 @@
 #![no_main]
 
 use core::panic::PanicInfo;
-use uart::{uart_init, uart_read_byte, uart_write_byte};
+use uart::{uart_init, uart_read_byte};
 
 pub mod uart;
 
@@ -16,6 +16,6 @@ extern "C" fn _start() {
     uart_init();
     loop {
         let byte = uart_read_byte();
-        uart_write_byte(byte);
+        println!("received byte: {}", byte);
     }
 }

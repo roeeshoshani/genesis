@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 bitpiece = "0.1.6"
 hal = { path = "../hal" }
+spin = "0.9.8"
 
 [profile.release]
 debug = true

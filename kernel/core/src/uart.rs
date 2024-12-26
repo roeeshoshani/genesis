@@ -1,5 +1,6 @@
 use bitpiece::*;
 use hal::uart::*;
+use spin::mutex::SpinMutex;
 
 fn uart_set_divisor_latch_access(value: bool) {
     let mut line_control_value = UartRegs::line_control().read();
@@ -58,10 +59,44 @@ pub fn uart_read_byte() -> u8 {
     UartRegs::rx().read()
 }
 
-pub fn uart_write_byte(byte: u8) {
+fn uart_write_byte(byte: u8) {
     while !UartRegs::line_status()
         .read()
         .is_transmitter_holding_register_empty()
     {}
     UartRegs::tx().write(byte)
+}
+
+struct UartWriter;
+impl core::fmt::Write for UartWriter {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        for byte in s.bytes() {
+            if byte == b'\n' {
+                uart_write_byte(b'\r');
+                uart_write_byte(b'\n');
+            } else {
+                uart_write_byte(byte);
+            }
+        }
+        Ok(())
+    }
+}
+
+static UART_WRITER: SpinMutex<UartWriter> = SpinMutex::new(UartWriter);
+
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => ($crate::uart::_print(format_args!($($arg)*)));
+}
+
+#[macro_export]
+macro_rules! println {
+    () => ($crate::print!("\n"));
+    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
+}
+
+#[doc(hidden)]
+pub fn _print(args: core::fmt::Arguments) {
+    use core::fmt::Write;
+    UART_WRITER.lock().write_fmt(args).unwrap();
 }

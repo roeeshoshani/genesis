@@ -1,30 +1,34 @@
 ENTRY(_start)
 
+PHDRS {
+    all PT_LOAD;
+}
+
 SECTIONS
 {
     .text : {
         *(.text) *(.text.*)
-    }
+    } : all
 
     .rodata : {
         *(.rodata)
         *(.rodata.*)
-    }
+    } : all
 
     .got : {
         *(.got)
         *(.got.*)
-    }
+    } : all
 
     .data : {
         *(.data)
         *(.data.*)
-    }
+    } : all
 
     .bss : {
         *(.bss)
         *(.bss.*)
-    }
+    } : all
 
     .rel : {
         *(.rel.*)
