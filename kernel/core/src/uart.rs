@@ -39,10 +39,10 @@ pub fn uart_init() {
         reserved: BitPiece::zeroed(),
     }));
 
-    // set the divisor to 1 to achieve a baud rate of 115200
+    // set the divisor to 1 to use a baud rate equal to the clock rate
     uart_set_baud_rate_divisor(1);
 
-    // configure the line parameters
+    // configure the line parameters to use 8 bit words, one stip bit, and not parity
     UartRegs::line_control().write(UartLineControlReg::from_fields(UartLineControlRegFields {
         word_length: UartWordLength::L8,
         use_extra_stop_bits: false,
