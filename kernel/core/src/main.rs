@@ -28,14 +28,18 @@ fn general_exception_handler() {
 }
 
 fn write_general_exception_vector() {
-    // use kseg1 to avoid the cache, since we are writing instructions, and we want it to go directly to ram.
-    let interrupt_vector_addr = EXCEPTION_VECTOR_BASE.kseg1_addr().unwrap() + 0x180;
+    // the interrupt vector is accessed by the cpu through kseg0
+    let interrupt_vector_addr = EXCEPTION_VECTOR_BASE.kseg0_addr().unwrap() + 0x180;
     let jumper = MipsRelJumper::new(
         VirtAddr(general_exception_handler as usize),
         interrupt_vector_addr,
     );
+
+    // when writing the interrupt vector, use kseg1 to avoid the cache.
+    // we are writing instructions, and we want them to go directly to ram, and not be stuck in the data cache.
+    let interrupt_vector_write_addr = EXCEPTION_VECTOR_BASE.kseg1_addr().unwrap() + 0x180;
     unsafe {
-        interrupt_vector_addr
+        interrupt_vector_write_addr
             .as_mut_ptr::<MipsRelJumper>()
             .write_volatile(jumper)
     };
