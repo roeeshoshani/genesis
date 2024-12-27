@@ -206,18 +206,21 @@ impl CacheParams {
 }
 
 /// a trait which represents a coprocessor 0 register type.
-/// this must be a 32-bit bitfield, since all coprocessor 0 registers are 32-bits.
-pub trait Cp0Reg: BitPiece<Bits = u32> {
+pub trait Cp0Reg {
     /// the address of this coprocessor 0 register.
     const ADDR: Cp0RegAddr;
 
+    /// a type used to represent the value of this register.
+    /// this must be a 32-bit bitfield, since all coprocessor 0 registers are 32-bits.
+    type Value: BitPiece<Bits = u32>;
+
     /// reads the value of this coprocessor 0 register.
-    fn read() -> Self {
-        Self::from_bits(read_cp0_reg!(Self::ADDR))
+    fn read() -> Self::Value {
+        Self::Value::from_bits(read_cp0_reg!(Self::ADDR))
     }
 
     /// writes the given value to this coprocessor 0 register.
-    fn write(value: Self) {
+    fn write(value: Self::Value) {
         write_cp0_reg!(Self::ADDR, value.to_bits())
     }
 }
@@ -246,32 +249,29 @@ impl Cp0Reg for Cp0RegConfig1 {
         group: Cp0RegGroup::Config,
         select: 1,
     };
+    type Value = Self;
 }
 
 /// the ITagLo register of coprocessor 0
-#[bitpiece(32)]
 #[derive(Debug, Clone, Copy)]
-pub struct Cp0RegITagLo {
-    pub value: u32,
-}
+pub struct Cp0RegITagLo;
 impl Cp0Reg for Cp0RegITagLo {
     const ADDR: Cp0RegAddr = Cp0RegAddr {
         group: Cp0RegGroup::Cache,
         select: 0,
     };
+    type Value = u32;
 }
 
 /// the DTagLo register of coprocessor 0
-#[bitpiece(32)]
 #[derive(Debug, Clone, Copy)]
-pub struct Cp0RegDTagLo {
-    pub value: u32,
-}
+pub struct Cp0RegDTagLo;
 impl Cp0Reg for Cp0RegDTagLo {
     const ADDR: Cp0RegAddr = Cp0RegAddr {
         group: Cp0RegGroup::Cache,
         select: 2,
     };
+    type Value = u32;
 }
 
 /// the config0 register of coprocessor 0
@@ -301,6 +301,7 @@ impl Cp0Reg for Cp0RegConfig0 {
         group: Cp0RegGroup::Config,
         select: 0,
     };
+    type Value = Self;
 }
 
 /// the cause register of coprocessor 0
@@ -325,6 +326,7 @@ impl Cp0Reg for Cp0RegCause {
         group: Cp0RegGroup::Cause,
         select: 0,
     };
+    type Value = Self;
 }
 
 /// the status register of coprocessor 0
@@ -358,6 +360,7 @@ impl Cp0Reg for Cp0RegStatus {
         group: Cp0RegGroup::Status,
         select: 0,
     };
+    type Value = Self;
 }
 
 /// a bitmap of all interrupts. each bit is associated with one interrupt.

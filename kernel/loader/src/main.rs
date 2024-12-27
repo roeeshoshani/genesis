@@ -9,7 +9,14 @@ use core::{
 };
 
 use bitpiece::*;
-use hal::*;
+use hal::{
+    cache_insn,
+    mem::{VirtAddr, KERNEL_STACK, KSEG0, KSEG1},
+    sys::{
+        CacheConfig, CacheInsnOp, CacheInsnOperationType, CacheType, Cp0Reg, Cp0RegConfig0,
+        Cp0RegConfig1, Cp0RegDTagLo, Cp0RegITagLo,
+    },
+};
 use loader_shared::LoaderInfoHeader;
 
 #[repr(C)]
@@ -118,12 +125,12 @@ fn make_stack_cachable() {
 }
 
 fn initialize_cache() {
-    let config1 = read_cp0_config1();
+    let config1 = Cp0RegConfig1::read();
     let dcache = config1.dcache_params();
     if dcache.is_cache_present() {
         // fill the DTagLo register with zero bits. this will make the "valid" bit zero, which will allow us to invalidate
         // all cache entries.
-        write_cp0_reg!(Cp0Reg::D_TAG_LO, 0);
+        Cp0RegDTagLo::write(0);
 
         // write the zeroed out tag to all dcache entries
         for line_index in 0..dcache.total_lines_amount() {
@@ -142,7 +149,7 @@ fn initialize_cache() {
     if icache.is_cache_present() {
         // fill the ITagLo register with zero bits. this will make the "valid" bit zero, which will allow us to invalidate
         // all cache entries.
-        write_cp0_reg!(Cp0Reg::I_TAG_LO, 0);
+        Cp0RegITagLo::write(0);
 
         // write the zeroed out tag to all icache entries
         for line_index in 0..icache.total_lines_amount() {
@@ -160,9 +167,9 @@ fn initialize_cache() {
 
 /// configure the cache behaviour of the kseg0 memory region.
 fn make_kseg0_cachable() {
-    let mut config0 = read_cp0_config0();
+    let mut config0 = Cp0RegConfig0::read();
     config0.set_k0_cache_config(CacheConfig::CacheableWriteBack);
-    write_cp0_reg!(Cp0Reg::CONFIG_0, config0.to_bits())
+    Cp0RegConfig0::write(config0);
 }
 
 global_asm!(
