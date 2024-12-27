@@ -56,7 +56,10 @@ global_asm!(
     //
     // we are pointing to that physical address through kseg1, which is uncached, since cache is not yet initialized.
     "li $sp, ({KSEG1_START} + {STACK_SIZE})",
+    // jump to the rust entrypoint function
     "b loader_entrypoint",
+    // put a nop in the delay slot of the branch
+    "nop",
     // undo the `.section` directive that we used at the start.
     ".previous",
     KSEG1_START = const { KSEG1.start.0 },
