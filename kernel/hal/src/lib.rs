@@ -4,6 +4,7 @@
 use bitpiece::*;
 use paste::paste;
 
+pub mod insn;
 pub mod uart;
 
 macro_rules! impl_newtype_operator_full {
