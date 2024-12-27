@@ -4,13 +4,46 @@ use bitpiece::*;
 /// the size, in bytes, of a mips instruction.
 pub const MIPS_INSN_SIZE: usize = size_of::<u32>();
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct MipsInsnReg(pub u8);
-
 pub type MipsInsnEncodedReg = B5;
 
 fn encode_reg(index: u8) -> MipsInsnEncodedReg {
     B5(index)
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct MipsInsnReg(pub u8);
+impl MipsInsnReg {
+    pub const SP: Self = Self(29);
+    pub const RA: Self = Self(31);
+
+    pub fn encode(self) -> MipsInsnEncodedReg {
+        encode_reg(self.0)
+    }
+}
+
+/// a mips instruction sequence which pushes a register onto the stack
+#[repr(C)]
+pub struct MipsPushReg {
+    pub addiu: MipsInsnIType,
+    pub sw: MipsInsnIType,
+}
+impl MipsPushReg {
+    pub fn new(reg: MipsInsnReg) -> Self {
+        Self {
+            addiu: MipsInsnIType::from_fields(MipsInsnITypeFields {
+                imm: -4i16 as u16,
+                rt: MipsInsnReg::SP.encode(),
+                rs: MipsInsnReg::SP.encode(),
+                opcode: MipsInsnOpcode::Addiu,
+            }),
+            sw: MipsInsnIType::from_fields(MipsInsnITypeFields {
+                imm: 0,
+                rt: reg.encode(),
+                rs: MipsInsnReg::SP.encode(),
+                opcode: MipsInsnOpcode::Sw,
+            }),
+        }
+    }
 }
 
 /// a mips instruction sequence which loads a 32-bit immediate into a register
@@ -24,13 +57,13 @@ impl MipsLoadImm32ToReg {
         Self {
             lui: MipsInsnIType::from_fields(MipsInsnITypeFields {
                 imm: (imm32 >> 16) as u16,
-                rt: encode_reg(reg.0),
+                rt: reg.encode(),
                 rs: encode_reg(0),
                 opcode: MipsInsnOpcode::Lui,
             }),
             ori: MipsInsnIType::from_fields(MipsInsnITypeFields {
                 imm: (imm32 & 0xffff) as u16,
-                rt: encode_reg(reg.0),
+                rt: reg.encode(),
                 rs: encode_reg(0),
                 opcode: MipsInsnOpcode::Ori,
             }),
@@ -92,7 +125,7 @@ impl MipsAbsJumper {
                 shift_amount: BitPiece::zeroes(),
                 rd: encode_reg(0),
                 rt: encode_reg(0),
-                rs: encode_reg(reg.0),
+                rs: reg.encode(),
                 opcode: MipsInsnOpcode::Special,
             }),
         }

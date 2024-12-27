@@ -5,7 +5,7 @@
 use bitpiece::*;
 use core::panic::PanicInfo;
 use hal::{
-    insn::MipsRelJumper,
+    insn::{MipsAbsJumper, MipsInsnReg, MipsPushReg, MipsRelJumper},
     mem::{VirtAddr, EXCEPTION_VECTOR_BASE},
     sys::{
         Cp0Reg, Cp0RegCause, Cp0RegStatus, Cp0RegStatusFields, CpuErrorLevel, CpuExceptionLevel,
@@ -18,7 +18,7 @@ pub mod uart;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    println!("panicked: {:?}", info);
+    println!("{}", info);
     // TODO: disable interrupts before entering the infinite loop
     loop {}
 }
@@ -27,21 +27,34 @@ fn general_exception_handler() {
     panic!("got interrupt");
 }
 
+#[repr(C)]
+pub struct ExceptionVectorStub {
+    pub push: MipsPushReg,
+    pub jumper: MipsAbsJumper,
+}
+impl ExceptionVectorStub {
+    pub fn new(target_addr: VirtAddr, tmp_reg: MipsInsnReg) -> Self {
+        Self {
+            push: MipsPushReg::new(tmp_reg),
+            jumper: MipsAbsJumper::new(tmp_reg, target_addr),
+        }
+    }
+}
+
 fn write_general_exception_vector() {
-    // the interrupt vector is accessed by the cpu through kseg0
-    let interrupt_vector_addr = EXCEPTION_VECTOR_BASE.kseg0_addr().unwrap() + 0x180;
-    let jumper = MipsRelJumper::new(
+    // build the stub
+    let stub = ExceptionVectorStub::new(
         VirtAddr(general_exception_handler as usize),
-        interrupt_vector_addr,
+        MipsInsnReg::RA,
     );
 
-    // when writing the interrupt vector, use kseg1 to avoid the cache.
+    // when writing the stub, use kseg1, to avoid the cache.
     // we are writing instructions, and we want them to go directly to ram, and not be stuck in the data cache.
     let interrupt_vector_write_addr = EXCEPTION_VECTOR_BASE.kseg1_addr().unwrap() + 0x180;
     unsafe {
         interrupt_vector_write_addr
-            .as_mut_ptr::<MipsRelJumper>()
-            .write_volatile(jumper)
+            .as_mut_ptr::<ExceptionVectorStub>()
+            .write_volatile(stub)
     };
 }
 
