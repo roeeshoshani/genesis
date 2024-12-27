@@ -256,6 +256,8 @@ pub const KERNEL_STACK: PhysMemRegion = PhysMemRegion {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Cp0RegGroup {
+    Status = 12,
+    Cause = 13,
     Config = 16,
     Cache = 28,
 }
@@ -285,6 +287,10 @@ impl Cp0Reg {
     pub const D_TAG_LO: Self = Self {
         group: Cp0RegGroup::Cache,
         select: 2,
+    };
+    pub const STATUS: Self = Self {
+        group: Cp0RegGroup::Status,
+        select: 0,
     };
 }
 
@@ -523,6 +529,123 @@ pub struct Cp0Config0 {
     pub kuseg_cache_config: CacheConfig,
     pub kseg2_and_kseg3_cache_config: CacheConfig,
     pub is_config1_register_present: bool,
+}
+
+/// the cause register of coprocessor 0
+#[bitpiece(32)]
+#[derive(Debug, Clone, Copy)]
+pub struct Cp0Cause {
+    pub reserved0: B2,
+    pub exception_code: ExceptionCode,
+    pub reserved7: B1,
+    pub pending_interrupts: InterruptBitmap,
+    pub reserved16: B6,
+    pub is_watch_exception_deferred: bool,
+    pub use_special_interrupt_vector: bool,
+    pub reserved24: B4,
+    /// coprocessor unit number referenced when a coprocessor unusable exception is taken
+    pub coprocessor_unusable_coprocessor_number: B2,
+    pub reserved30: B1,
+    pub was_last_exception_in_delay_slot: bool,
+}
+
+/// the status register of coprocessor 0
+#[bitpiece(32)]
+#[derive(Debug, Clone, Copy)]
+pub struct Cp0Status {
+    pub are_interrupts_enabled: bool,
+    pub exception_level: CpuExceptionLevel,
+    pub error_level: CpuErrorLevel,
+    pub operating_mode: OperatingMode,
+    pub reserved5: B3,
+    pub interrupt_mask: InterruptBitmap,
+    pub reserved16: B3,
+    /// indicates that the entry through the reset exception vector was due to an NMI
+    pub in_nmi: bool,
+    /// indicates that the entry through the reset exception vector was due to a soft reset
+    pub is_soft_reset: bool,
+    pub was_tlb_conflict_detected: bool,
+    pub use_bootstrap_exception_vectors: bool,
+    pub reserved23: B2,
+    pub reverse_endianness: bool,
+    pub reserved26: B1,
+    pub reduced_power_mode: bool,
+    pub allow_access_to_coprocessor_0: bool,
+    pub allow_access_to_coprocessor_1: bool,
+    pub allow_access_to_coprocessor_2: bool,
+    pub allow_access_to_coprocessor_3: bool,
+}
+
+/// a bitmap of all interrupts. each bit is associated with one interrupt.
+#[bitpiece(8)]
+#[derive(Debug, Clone, Copy)]
+pub struct InterruptBitmap {
+    pub software: B2,
+    pub hardware: B6,
+}
+
+/// a cpu exception code.
+#[bitpiece(5)]
+#[derive(Debug, Clone, Copy)]
+pub enum ExceptionCode {
+    Interrupt = 0,
+    TlbModification = 1,
+    TlbLoad = 2,
+    TlbStore = 3,
+    AddrErrorLoad = 4,
+    AddrErrorStore = 5,
+    InstructionBusError = 6,
+    DataBusError = 7,
+    Syscall = 8,
+    Breakpoint = 9,
+    ReservedInstruction = 10,
+    CoprocessorUnusable = 11,
+    ArithmeticOverflow = 12,
+    Trap = 13,
+    Reserved14 = 14,
+    FloatingPoint = 15,
+    Reserved16 = 16,
+    Reserved17 = 17,
+    Coprocessor2 = 18,
+    Reserved19 = 19,
+    Reserved20 = 20,
+    Reserved21 = 21,
+    Mdmx = 22,
+    Watch = 23,
+    MachineCheck = 24,
+    Reserved25 = 25,
+    Reserved26 = 26,
+    Reserved27 = 27,
+    Reserved28 = 28,
+    Reserved29 = 29,
+    Cache = 30,
+    Reserved31 = 31,
+}
+
+/// the operating mode of the cpu.
+#[bitpiece(2)]
+#[derive(Debug, Clone, Copy)]
+pub enum OperatingMode {
+    KernelMode = 0,
+    SupervisorMode = 1,
+    UserMode = 2,
+    Reserved = 3,
+}
+
+/// the exception level of the cpu.
+#[bitpiece(1)]
+#[derive(Debug, Clone, Copy)]
+pub enum CpuExceptionLevel {
+    NormalLevel = 0,
+    ExceptionLevel = 1,
+}
+
+/// the error level of the cpu.
+#[bitpiece(1)]
+#[derive(Debug, Clone, Copy)]
+pub enum CpuErrorLevel {
+    NormalLevel = 0,
+    ErrorLevel = 1,
 }
 
 /// the burst order of the cpu.
