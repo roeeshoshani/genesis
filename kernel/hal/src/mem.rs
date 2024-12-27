@@ -234,10 +234,13 @@ pub const KSEG1: VirtMemRegion = VirtMemRegion {
     end: VirtAddr(0xc000_0000),
 };
 
+/// the base address of the exception vector.
+pub const EXCEPTION_VECTOR_BASE: PhysAddr = PhysAddr(0);
+
 /// the region of padding to leave at the start of the physical address space to avoid overwriting the exception vector.
 pub const EXCEPTION_VECTOR_PADDING: PhysMemRegion = PhysMemRegion {
-    start: PhysAddr(0),
-    end: PhysAddr(0x300),
+    start: EXCEPTION_VECTOR_BASE,
+    end: PhysAddr(EXCEPTION_VECTOR_BASE.0 + 0x300),
 };
 
 /// the physical memory region of the kernel stack.

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bitpiece = "0.1.6"
+bitpiece = "0.1.7"
 hal = { path = "../hal" }
 spin = "0.9.8"
 

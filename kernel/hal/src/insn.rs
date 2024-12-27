@@ -66,7 +66,7 @@ impl MipsRelJumper {
                 rs: encode_reg(0),
                 opcode: MipsInsnOpcode::Beq,
             }),
-            nop: MipsInsnRType::zeroed(),
+            nop: MipsInsnRType::ones(),
         }
     }
 }
@@ -89,7 +89,7 @@ impl MipsAbsJumper {
             load_imm_to_reg: MipsLoadImm32ToReg::new(reg, target_addr.0 as u32),
             jalr: MipsInsnRType::from_fields(MipsInsnRTypeFields {
                 function: MipsInsnFunction::Jr,
-                shift_amount: BitPiece::zeroed(),
+                shift_amount: BitPiece::zeroes(),
                 rd: encode_reg(0),
                 rt: encode_reg(0),
                 rs: encode_reg(reg.0),

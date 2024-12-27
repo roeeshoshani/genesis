@@ -25,7 +25,7 @@ pub fn uart_init() {
             is_transmitter_holding_register_empty_interrupt_enabled: false,
             is_receiver_line_status_interrupt_enabled: false,
             is_modem_status_interrupt_enabled: false,
-            zero: BitPiece::zeroed(),
+            zero: BitPiece::zeroes(),
         },
     ));
 
@@ -35,8 +35,8 @@ pub fn uart_init() {
         receiver_fifo_reset: true,
         transmitter_fifo_reset: true,
         receiver_trigger_level: UartFifoReceiverTriggerLevel::B1,
-        dma_mode_select: BitPiece::zeroed(),
-        reserved: BitPiece::zeroed(),
+        dma_mode_select: BitPiece::zeroes(),
+        reserved: BitPiece::zeroes(),
     }));
 
     // set the divisor to 1 to use a baud rate equal to the clock rate
