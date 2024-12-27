@@ -187,6 +187,46 @@ impl VirtMemRegion {
     }
 }
 
+/// a region of physical memory.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct PhysMemRegion {
+    /// the start address of the region.
+    pub start: PhysAddr,
+
+    /// the end address of the region.
+    pub end: PhysAddr,
+}
+impl PhysMemRegion {
+    /// returns the size of the region
+    pub const fn size(&self) -> usize {
+        self.end.0 - self.start.0
+    }
+
+    /// returns whether this memory region contains the given address
+    pub const fn contains(&self, addr: PhysAddr) -> bool {
+        addr.0 >= self.start.0 && addr.0 < self.end.0
+    }
+
+    /// returns the offset of the given address within this memory region, if the address is within this memory region.
+    pub const fn offset_of_addr(&self, addr: PhysAddr) -> Option<usize> {
+        if !self.contains(addr) {
+            return None;
+        }
+        Some(addr.0 - self.start.0)
+    }
+
+    /// returns the address at the given offset from the start of the region if the offset is within the bounds of the region.
+    pub const fn addr_at_offset(&self, offset: usize) -> Option<PhysAddr> {
+        if offset >= self.size() {
+            return None;
+        }
+        // can't use `?` here since using it in const functions is not stable yet.
+        let Some(addr) = self.start.0.checked_add(offset) else {
+            return None;
+        };
+        Some(PhysAddr(addr))
+    }
+}
 /// the kseg0 memory region. this is an unmapped and cacheable memory region.
 pub const KSEG0: VirtMemRegion = VirtMemRegion {
     start: VirtAddr(0x8000_0000),
@@ -199,8 +239,17 @@ pub const KSEG1: VirtMemRegion = VirtMemRegion {
     end: VirtAddr(0xc000_0000),
 };
 
-/// the size of the kernel stack.
-pub const STACK_SIZE: usize = 4 * 1024 * 1024;
+/// the region of padding to leave at the start of the physical address space to avoid overwriting the exception vector.
+pub const EXCEPTION_VECTOR_PADDING: PhysMemRegion = PhysMemRegion {
+    start: PhysAddr(0),
+    end: PhysAddr(0x300),
+};
+
+/// the physical memory region of the kernel stack.
+pub const KERNEL_STACK: PhysMemRegion = PhysMemRegion {
+    start: EXCEPTION_VECTOR_PADDING.end,
+    end: PhysAddr(EXCEPTION_VECTOR_PADDING.end.0 + 8 * 1024 * 1024),
+};
 
 /// the register group of a coprocessor 0 register.
 /// this can be combines with a `select` value to get a percise register address.

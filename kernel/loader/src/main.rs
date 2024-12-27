@@ -53,7 +53,7 @@ global_asm!(
     // undo the `.section` directive that we used at the start.
     ".previous",
     KSEG1_START = const { KSEG1.start.0 },
-    STACK_SIZE = const { STACK_SIZE },
+    STACK_SIZE = const { KERNEL_STACK.size() },
 );
 
 /// the entrypoint of the shellcode loader.
@@ -82,7 +82,7 @@ unsafe extern "C" fn loader_entrypoint() {
 
     // copy the wrapped kernel code from ROM to RAM so that we can relocate it.
     // put the kernel at a physical address which is right after the end of the stack. map it using kseg0 so that it will be cached.
-    let kernel_dst_addr = KSEG0.addr_at_offset(STACK_SIZE).unwrap().as_mut_ptr::<u8>();
+    let kernel_dst_addr = KERNEL_STACK.end.kseg0_addr().unwrap().as_mut_ptr::<u8>();
     kernel_dst_addr.copy_from_nonoverlapping(wrapped_code_ptr, info.initialized_size as usize);
 
     for relocation in relocations {
