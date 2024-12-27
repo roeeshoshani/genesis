@@ -1,4 +1,4 @@
-use crate::VirtAddr;
+use crate::mem::VirtAddr;
 use bitpiece::*;
 
 /// the size, in bytes, of a mips instruction.

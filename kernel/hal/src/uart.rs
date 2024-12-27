@@ -6,7 +6,7 @@ use volatile::{
     VolatilePtr,
 };
 
-use crate::{PhysAddr, VirtAddr};
+use crate::mem::{PhysAddr, VirtAddr};
 
 /// a struct representing the UART hardware registers, providing access to them.
 pub struct UartRegs;
