@@ -18,7 +18,12 @@ add-symbol-file core/target/target/debug/core 0x80800300
 
 set language rust
 set print pretty on
-source $(rustc --print sysroot)/lib/rustlib/etc/gdb_load_rust_pretty_printers.py
+
+python
+import subprocess
+rust_sysroot = subprocess.getoutput("rustc --print sysroot")
+gdb.execute(f'source {rust_sysroot}/lib/rustlib/etc/gdb_load_rust_pretty_printers.py')
+end
 
 target remote localhost:1234
 
