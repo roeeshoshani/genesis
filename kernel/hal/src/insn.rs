@@ -11,13 +11,58 @@ fn encode_reg(index: u8) -> MipsInsnEncodedReg {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct MipsInsnReg(pub u8);
+#[repr(u8)]
+pub enum MipsInsnReg {
+    Zero = 0,
+    At = 1,
+    V0 = 2,
+    V1 = 3,
+    A0 = 4,
+    A1 = 5,
+    A2 = 6,
+    A3 = 7,
+    T0 = 8,
+    T1 = 9,
+    T2 = 10,
+    T3 = 11,
+    T4 = 12,
+    T5 = 13,
+    T6 = 14,
+    T7 = 15,
+    S0 = 16,
+    S1 = 17,
+    S2 = 18,
+    S3 = 19,
+    S4 = 20,
+    S5 = 21,
+    S6 = 22,
+    S7 = 23,
+    T8 = 24,
+    T9 = 25,
+    K0 = 26,
+    K1 = 27,
+    Gp = 28,
+    Sp = 29,
+    Fp = 30,
+    Ra = 31,
+}
+
 impl MipsInsnReg {
-    pub const SP: Self = Self(29);
-    pub const RA: Self = Self(31);
+    pub const REGS_AMOUNT: usize = 32;
+
+    pub const CALLEE_SAVED_REGS: [Self; 8] = [
+        Self::S0,
+        Self::S1,
+        Self::S2,
+        Self::S3,
+        Self::S4,
+        Self::S5,
+        Self::S6,
+        Self::S7,
+    ];
 
     pub fn encode(self) -> MipsInsnEncodedReg {
-        encode_reg(self.0)
+        encode_reg(self as u8)
     }
 }
 
@@ -32,15 +77,40 @@ impl MipsPushReg {
         Self {
             addiu: MipsInsnIType::from_fields(MipsInsnITypeFields {
                 imm: -4i16 as u16,
-                rt: MipsInsnReg::SP.encode(),
-                rs: MipsInsnReg::SP.encode(),
+                rt: MipsInsnReg::Sp.encode(),
+                rs: MipsInsnReg::Sp.encode(),
                 opcode: MipsInsnOpcode::Addiu,
             }),
             sw: MipsInsnIType::from_fields(MipsInsnITypeFields {
                 imm: 0,
                 rt: reg.encode(),
-                rs: MipsInsnReg::SP.encode(),
+                rs: MipsInsnReg::Sp.encode(),
                 opcode: MipsInsnOpcode::Sw,
+            }),
+        }
+    }
+}
+
+/// a mips instruction sequence which pops a value from the stack into a register
+#[repr(C)]
+pub struct MipsPopReg {
+    pub lw: MipsInsnIType,
+    pub addiu: MipsInsnIType,
+}
+impl MipsPopReg {
+    pub fn new(reg: MipsInsnReg) -> Self {
+        Self {
+            lw: MipsInsnIType::from_fields(MipsInsnITypeFields {
+                imm: 0,
+                rt: reg.encode(),
+                rs: MipsInsnReg::Sp.encode(),
+                opcode: MipsInsnOpcode::Lw,
+            }),
+            addiu: MipsInsnIType::from_fields(MipsInsnITypeFields {
+                imm: 4,
+                rt: MipsInsnReg::Sp.encode(),
+                rs: MipsInsnReg::Sp.encode(),
+                opcode: MipsInsnOpcode::Addiu,
             }),
         }
     }
@@ -64,7 +134,7 @@ impl MipsLoadImm32ToReg {
             ori: MipsInsnIType::from_fields(MipsInsnITypeFields {
                 imm: (imm32 & 0xffff) as u16,
                 rt: reg.encode(),
-                rs: encode_reg(0),
+                rs: reg.encode(),
                 opcode: MipsInsnOpcode::Ori,
             }),
         }
@@ -73,17 +143,17 @@ impl MipsLoadImm32ToReg {
 
 /// a mips instruction sequence which jumps to the given virtual address by performing a relative jump to it.
 #[repr(C)]
-pub struct MipsRelJumper {
+pub struct MipsRelJump {
     pub beq: MipsInsnIType,
     pub nop: MipsInsnRType,
 }
-impl MipsRelJumper {
-    pub fn new(target_addr: VirtAddr, jumper_addr: VirtAddr) -> Self {
+impl MipsRelJump {
+    pub fn new(target_addr: VirtAddr, rel_jump_code_addr: VirtAddr) -> Self {
         // make sure that the addresses are properly aligned
         assert!(target_addr.0 % MIPS_INSN_SIZE == 0);
-        assert!(jumper_addr.0 % MIPS_INSN_SIZE == 0);
+        assert!(rel_jump_code_addr.0 % MIPS_INSN_SIZE == 0);
 
-        let delay_slot_insn_addr = jumper_addr + MIPS_INSN_SIZE;
+        let delay_slot_insn_addr = rel_jump_code_addr + MIPS_INSN_SIZE;
         let diff32 = (target_addr.0 as u32).wrapping_sub(delay_slot_insn_addr.0 as u32) as i32;
 
         let branch_imm32 = diff32 >> 2;
@@ -106,14 +176,36 @@ impl MipsRelJumper {
 
 /// a mips instruction sequence which jumps to the given virtual address by loading it into a register and jumping to it.
 #[repr(C)]
-pub struct MipsAbsJumper {
+pub struct MipsAbsJump {
+    pub load_imm_to_reg: MipsLoadImm32ToReg,
+    pub jr: MipsInsnRType,
+}
+impl MipsAbsJump {
+    pub fn new(target_addr: VirtAddr, reg: MipsInsnReg) -> Self {
+        // make sure that the target address is properly aligned
+        assert!(target_addr.0 % MIPS_INSN_SIZE == 0);
+
+        Self {
+            load_imm_to_reg: MipsLoadImm32ToReg::new(reg, target_addr.0 as u32),
+            jr: MipsInsnRType::from_fields(MipsInsnRTypeFields {
+                function: MipsInsnFunction::Jr,
+                shift_amount: BitPiece::zeroes(),
+                rd: encode_reg(0),
+                rt: encode_reg(0),
+                rs: reg.encode(),
+                opcode: MipsInsnOpcode::Special,
+            }),
+        }
+    }
+}
+
+/// a mips instruction sequence which calls a function at the given virtual address by loading it into a register and calling to it.
+#[repr(C)]
+pub struct MipsAbsCall {
     pub load_imm_to_reg: MipsLoadImm32ToReg,
     pub jalr: MipsInsnRType,
 }
-impl MipsAbsJumper {
-    /// the size of the jumper, in bytes.
-    pub const SIZE: usize = size_of::<Self>();
-
+impl MipsAbsCall {
     pub fn new(reg: MipsInsnReg, target_addr: VirtAddr) -> Self {
         // make sure that the target address is properly aligned
         assert!(target_addr.0 % MIPS_INSN_SIZE == 0);
@@ -121,9 +213,9 @@ impl MipsAbsJumper {
         Self {
             load_imm_to_reg: MipsLoadImm32ToReg::new(reg, target_addr.0 as u32),
             jalr: MipsInsnRType::from_fields(MipsInsnRTypeFields {
-                function: MipsInsnFunction::Jr,
+                function: MipsInsnFunction::Jalr,
                 shift_amount: BitPiece::zeroes(),
-                rd: encode_reg(0),
+                rd: MipsInsnReg::Ra.encode(),
                 rt: encode_reg(0),
                 rs: reg.encode(),
                 opcode: MipsInsnOpcode::Special,
@@ -255,41 +347,41 @@ pub enum MipsInsnOpcode {
     Reserved21 = 21,
     Reserved22 = 22,
     Reserved23 = 23,
-    Lb = 24,
-    Lh = 25,
-    Lwl = 26,
-    Lw = 27,
-    Lbu = 28,
-    Lhu = 29,
-    Lwr = 30,
+    Reserved24 = 24,
+    Reserved25 = 25,
+    Reserved26 = 26,
+    Reserved27 = 27,
+    Reserved28 = 28,
+    Reserved29 = 29,
+    Reserved30 = 30,
     Reserved31 = 31,
-    Sb = 32,
-    Sh = 33,
-    Swl = 34,
-    Sw = 35,
-    Reserved36 = 36,
-    Reserved37 = 37,
-    Swr = 38,
+    Lb = 32,
+    Lh = 33,
+    Lwl = 34,
+    Lw = 35,
+    Lbu = 36,
+    Lhu = 37,
+    Lwr = 38,
     Reserved39 = 39,
-    Lwc0 = 40,
-    Lwc1 = 41,
-    Lwc2 = 42,
-    Reserved43 = 43,
-    Reserved44 = 44,
-    Reserved45 = 45,
-    Reserved46 = 46,
+    Sb = 40,
+    Sh = 41,
+    Swl = 42,
+    Sw = 43,
+    Reserved36 = 44,
+    Reserved37 = 45,
+    Swr = 46,
     Reserved47 = 47,
-    Swc0 = 48,
-    Swc1 = 49,
-    Swc2 = 50,
+    Reserved48 = 48,
+    Lwc1 = 49,
+    Lwc2 = 50,
     Reserved51 = 51,
     Reserved52 = 52,
     Reserved53 = 53,
     Reserved54 = 54,
     Reserved55 = 55,
     Reserved56 = 56,
-    Reserved57 = 57,
-    Reserved58 = 58,
+    Swc1 = 57,
+    Swc2 = 58,
     Reserved59 = 59,
     Reserved60 = 60,
     Reserved61 = 61,

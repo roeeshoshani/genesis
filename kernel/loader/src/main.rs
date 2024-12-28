@@ -8,7 +8,6 @@ use core::{
     ptr::addr_of_mut,
 };
 
-use bitpiece::*;
 use hal::{
     cache_insn,
     mem::{VirtAddr, KERNEL_STACK, KSEG0, KSEG1},

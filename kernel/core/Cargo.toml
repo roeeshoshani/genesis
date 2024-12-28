@@ -5,8 +5,10 @@ edition = "2021"
 
 [dependencies]
 bitpiece = "0.1.7"
+const_for = "0.1.5"
 hal = { path = "../hal" }
 spin = "0.9.8"
+static_assertions = "1.1.0"
 
 [profile.release]
 debug = true

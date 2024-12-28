@@ -237,6 +237,13 @@ pub const KSEG1: VirtMemRegion = VirtMemRegion {
 /// the base address of the exception vector.
 pub const EXCEPTION_VECTOR_BASE: PhysAddr = PhysAddr(0);
 
+/// the offset of the general exception vector from the exception vector base address.
+pub const GENERAL_EXCEPTION_VECTOR_OFFSET: usize = 0x180;
+
+/// the address of the general exception vector
+pub const GENERAL_EXCEPTION_VECTOR_ADDR: PhysAddr =
+    PhysAddr(EXCEPTION_VECTOR_BASE.0 + GENERAL_EXCEPTION_VECTOR_OFFSET);
+
 /// the region of padding to leave at the start of the physical address space to avoid overwriting the exception vector.
 pub const EXCEPTION_VECTOR_PADDING: PhysMemRegion = PhysMemRegion {
     start: EXCEPTION_VECTOR_BASE,
