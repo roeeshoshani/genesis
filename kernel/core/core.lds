@@ -28,11 +28,37 @@ SECTIONS
     .bss : {
         *(.bss)
         *(.bss.*)
+        *(COMMON)
     } : all
 
-    .rel : {
+    .rel (NOLOAD) : {
         *(.rel.*)
-    }
+    } : NONE
+
+    .debug_abbrev (NOLOAD) : {
+        *(.debug_abbrev)
+    } : NONE
+    .debug_info (NOLOAD) : {
+        *(.debug_info)
+    } : NONE
+    .debug_aranges (NOLOAD) : {
+        *(.debug_aranges)
+    } : NONE
+    .debug_ranges (NOLOAD) : {
+        *(.debug_ranges)
+    } : NONE
+    .debug_str (NOLOAD) : {
+        *(.debug_str)
+    } : NONE
+    .debug_frame (NOLOAD) : {
+        *(.debug_frame)
+    } : NONE
+    .debug_line (NOLOAD) : {
+        *(.debug_line)
+    } : NONE
+    .debug_loc (NOLOAD) : {
+        *(.debug_loc)
+    } : NONE
 
     /DISCARD/ : {
         *(.eh_frame)
@@ -47,12 +73,5 @@ SECTIONS
         *(.dynstr)
         *(.rld_map)
         *(.comment)
-        *(.debug_abbrev)
-        *(.debug_info)
-        *(.debug_aranges)
-        *(.debug_ranges)
-        *(.debug_str)
-        *(.debug_frame)
-        *(.debug_line)
     }
 }
