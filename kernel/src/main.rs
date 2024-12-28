@@ -7,9 +7,10 @@ use devx_cmd::{cmd, run};
 use elflib::{ArchBitLength, ElfParser, Rel, RelocationType, SectionData};
 use loader_shared::LoaderInfoHeader;
 
-const PRE_POST_PROCESSING_KERNEL_FILE_PATH: &str = "target/target/debug/pre_post_processing_kernel";
-const FINAL_KERNEL_FILE_PATH: &str = "target/target/debug/kernel";
-const KERNEL_ELF_FILE_PATH: &str = "core/target/target/debug/core";
+const PRE_POST_PROCESSING_KERNEL_FILE_PATH: &str =
+    "target/target/release/pre_post_processing_kernel";
+const FINAL_KERNEL_FILE_PATH: &str = "target/target/release/kernel";
+const KERNEL_ELF_FILE_PATH: &str = "core/target/target/release/core";
 const LOADER_ELF_FILE_PATH: &str = "loader/target/target/release/loader";
 
 #[derive(Parser)]
@@ -83,7 +84,8 @@ fn run() -> Result<()> {
         "-bios",
         FINAL_KERNEL_FILE_PATH,
         // gdb stub on tcp port 1234
-        "-s"
+        "-s",
+        "-S",
     )?;
     Ok(())
 }
@@ -138,7 +140,9 @@ fn post_process_kernel_content(mut content: Vec<u8>) -> Vec<u8> {
 
 fn build_and_pack_kelf_content() -> Result<Vec<u8>> {
     let loader_code = build_and_extract_loader_code()?;
-    cmd!("cargo", "build").current_dir("core").run()?;
+    cmd!("cargo", "build", "--release")
+        .current_dir("core")
+        .run()?;
     let kelf_content = read_file(KERNEL_ELF_FILE_PATH)?;
     pack_kelf_file(&kelf_content, &loader_code).context(format!(
         "failed to pack kernel elf file {KERNEL_ELF_FILE_PATH}"

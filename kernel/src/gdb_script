@@ -14,7 +14,7 @@ set confirm on
 end
 
 add-symbol-file loader/target/target/release/loader
-add-symbol-file core/target/target/debug/core 0x80800300
+add-symbol-file core/target/target/release/core 0x80800300
 
 set language rust
 set print pretty on
