@@ -35,7 +35,7 @@ global_asm!(
     "loader_start:",
     // currently we are at address 0xbfc00000. this is where the processor begins execution.
     //
-    // at 0xbfc00010 we there is a hole in the flash mmmio, which instead of decoding to flash, decodes to the address revision register.
+    // at 0xbfc00010 we there is a hole in the flash mmmio, which instead of decoding to flash, decodes to the revision register.
     // we don't want our code to collide with this hole, so we skip it.
     "b after_hole",
     "nop",
