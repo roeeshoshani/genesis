@@ -49,12 +49,9 @@ global_asm!(
     "nop",
     "nop",
     "after_hole:",
-    // set up the stack by making it point to some offset from the start of the physical address space.
-    //
-    // the first 128MB at the start of the physical address space are all mapped to ram, so this ensures that our stack will use ram.
-    //
+    // set up the stack pointer to point to the end of the stack.
     // we are pointing to that physical address through kseg1, which is uncached, since cache is not yet initialized.
-    "li $sp, ({KSEG1_START} + {STACK_SIZE})",
+    "li $sp, ({KSEG1_START} + {STACK_END})",
     // jump to the rust entrypoint function
     "b loader_entrypoint",
     // put a nop in the delay slot of the branch
@@ -62,7 +59,7 @@ global_asm!(
     // undo the `.section` directive that we used at the start.
     ".previous",
     KSEG1_START = const { KSEG1.start.0 },
-    STACK_SIZE = const { KERNEL_STACK.size() },
+    STACK_END = const { KERNEL_STACK.end.0 },
 );
 
 /// the entrypoint of the shellcode loader.

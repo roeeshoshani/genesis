@@ -251,6 +251,8 @@ pub const EXCEPTION_VECTOR_PADDING: PhysMemRegion = PhysMemRegion {
 };
 
 /// the physical memory region of the kernel stack.
+/// we point the stack to the start of the physical address space right after the exception vector.
+/// the first 128MB at the start of the physical address space are all mapped to ram, so this ensures that our stack will use ram.
 pub const KERNEL_STACK: PhysMemRegion = PhysMemRegion {
     start: EXCEPTION_VECTOR_PADDING.end,
     end: PhysAddr(EXCEPTION_VECTOR_PADDING.end.0 + 8 * 1024 * 1024),
