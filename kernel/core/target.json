@@ -9,7 +9,7 @@
   "linker-flavor": "gnu-lld",
   "llvm-target": "mipsel-unknown-none",
   "pre-link-args": {
-    "gnu-lld": ["-pie", "--no-dynamic-linker"]
+    "gnu-lld": ["-pie"]
   },
   "max-atomic-width": 32,
   "metadata": {
