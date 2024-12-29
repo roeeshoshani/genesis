@@ -2,16 +2,12 @@ ENTRY(loader_start)
 
 SECTIONS
 {
-    /* 
-     * we use an address that is only page aligned, and not aligned to any higher value, to prevent the compiler from making
-     * assumptions about the alignment of the program counter, which can cause problems with pc-region relative instructions.
-     */
     . = 0xbfc00000;
     .text : {
         *(.text.boot)
         *(.text) *(.text.*)
     } :code
-    REFERENCE_POINT_OFFSET_FROM_END = . - reference_point;
+    END_OF_CODE = .;
 
     /DISCARD/ : {
         *(.eh_frame)

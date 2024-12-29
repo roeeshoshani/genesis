@@ -28,8 +28,7 @@ struct EncodedRel {
 pub type Entrypoint = unsafe extern "C" fn();
 
 extern "C" {
-    static mut REFERENCE_POINT_OFFSET_FROM_END: u8;
-    fn get_reference_point_addr() -> *mut u8;
+    static mut END_OF_CODE: u8;
 }
 
 // the loader's bootstrap code.
@@ -74,9 +73,7 @@ unsafe extern "C" fn loader_entrypoint() {
     // now that the cache is initialized, switch the stack to use cachable memory.
     make_stack_cachable();
 
-    let end_of_code_ptr =
-        get_reference_point_addr().add(addr_of_mut!(REFERENCE_POINT_OFFSET_FROM_END) as usize);
-    let mut cursor = Cursor::new(end_of_code_ptr);
+    let mut cursor = Cursor::new(addr_of_mut!(END_OF_CODE));
     let info = cursor.align_and_extract_struct::<LoaderInfoHeader>();
 
     // parse the relocations
@@ -170,22 +167,6 @@ fn make_kseg0_cachable() {
     config0.set_k0_cache_config(CacheConfig::CacheableWriteBack);
     Cp0RegConfig0::write(config0);
 }
-
-global_asm!(
-    ".globl get_reference_point_addr",
-    "get_reference_point_addr:",
-    // save the old return address
-    "move $t0, $ra",
-    // jump and link to the reference point, so that `ra` will contain the address of that label
-    "bal reference_point",
-    // define the reference point
-    ".globl reference_point",
-    "reference_point:",
-    // put the address of the reference point, which is now in `ra`, as the return value
-    "move $v0, $ra",
-    // return to the caller
-    "jr $t0",
-);
 
 #[panic_handler]
 fn panic(_: &PanicInfo) -> ! {
