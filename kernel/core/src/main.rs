@@ -48,8 +48,7 @@ global_asm!(
     // we are about to use $at directly, disable the warnings about this
     ".set noat",
 
-    // in the following section, we need percise control over which registers are accessed as we don't want to overwrite
-    // any of the registers before saving them on the stack.
+    // in the following section, we need percise control over which registers are accessed.
     // so, disallow using any macros which may implicitly use temporary registers.
     ".set nomacro",
 
@@ -60,8 +59,10 @@ global_asm!(
     // now save all registers on the stack, except for the following registers:
     // - the $zero register, which does not need to be saved for obvious reasons
     // - $sp, which is preserved across function calls due to calling convention
-    // - $s0-$s8, which are preserved due to calling convention
-    "addiu $sp, $sp, -84",
+    // - $s0-$s7, which are preserved due to calling convention
+    // NOTE: an alert reader might notice that we also don't need to save $s8, as it is also preserved across function calls.
+    // but, we later use it as part of this handler (to store the pre-alignment stack pointer), so we must save it as well.
+    "addiu $sp, $sp, -88",
     "sw $at, 0($sp)",
     "sw $v0, 4($sp)",
     "sw $v1, 8($sp)",
@@ -82,14 +83,24 @@ global_asm!(
     "sw $k0, 68($sp)",
     "sw $k1, 72($sp)",
     "sw $gp, 76($sp)",
-    "sw $ra, 80($sp)",
+    "sw $s8, 80($sp)",
+    "sw $ra, 84($sp)",
 
-    // we are done saving all registers on the stack, so we can now once again use the assembler macros which may implicitly use
-    // temporary registers.
-    ".set macro",
+    // we now want to align the stack to 8 bytes, which is required according to the mips abi.
+    // but first, we must save the original stack pointer before aligning, so that we can restore it later.
+    // we save is in $s8 as it is saved across function calls, so the handler will not overwrite it.
+    // NOTE: we can't use macros here, and `move` is a macro, so we use `or`.
+    "or $s8, $sp, $r0",
+
+    // now align the stack pointer
+    "andi $sp, $sp, 0xfffffff8",
 
     // call the rust handler
     "bal {handler}",
+
+    // restore the pre-alignment stack pointer that we saved in $s8
+    // NOTE: we can't use macros here, and `move` is a macro, so we use `or`.
+    "or $sp, $s8, $r0",
 
     // restore all registers
     "lw $at, 0($sp)",
@@ -112,12 +123,14 @@ global_asm!(
     "lw $k0, 68($sp)",
     "lw $k1, 72($sp)",
     "lw $gp, 76($sp)",
-    "lw $ra, 80($sp)",
-    "addiu $sp, $sp, 84",
+    "lw $s8, 80($sp)",
+    "lw $ra, 84($sp)",
+    "addiu $sp, $sp, 88",
 
     // TODO: iret?
 
     // restore assembler state
+    ".set macro",
     ".set at",
     ".set reorder",
 
