@@ -38,7 +38,7 @@ pub fn enable_interrupts() {
 }
 
 global_asm!(
-    // define a symbol for the loader's entrypoint. this will be the entrypoint of the loader's elf.
+    // define a symbol for the raw exception handler
     ".globl raw_general_exception_handler",
     "raw_general_exception_handler:",
 
@@ -48,12 +48,14 @@ global_asm!(
     // we are about to use $at directly, disable the warnings about this
     ".set noat",
 
-    // in the following section, we need percise control over which registers are accessed.
-    // so, disallow using any macros which may implicitly use temporary registers.
-    ".set nomacro",
+    // first, perform mips PIC function prologue, which will properly initialize GP.
+    //
+    // this will allow us to later use the `la` assembler pseudo-instruction to load the address of the handler from
+    // the GOT using gp-relative access, as should be performed in PIC mips code.
+    ".cpload $t9",
 
     // restore the register pushed to the stack by the stub
-    "lw $t0, 0($sp)",
+    "lw $t9, 0($sp)",
     "addiu $sp, $sp, 4",
 
     // now save all registers on the stack, except for the following registers:
@@ -89,18 +91,17 @@ global_asm!(
     // we now want to align the stack to 8 bytes, which is required according to the mips abi.
     // but first, we must save the original stack pointer before aligning, so that we can restore it later.
     // we save is in $s8 as it is saved across function calls, so the handler will not overwrite it.
-    // NOTE: we can't use macros here, and `move` is a macro, so we use `or`.
-    "or $s8, $sp, $0",
+    "move $s8, $sp",
 
     // calculate the mask required to align the stack pointer to 8 bytes
-    "lui $t0, 0xffff",
-    "ori $t0, $t0, 0xfff8",
+    "li $t0, 0xfffffff8",
 
     // now align the stack pointer
     "and $sp, $sp, $t0",
 
-    // call the rust handler
-    "bal {handler}",
+    // call the handler using $t9 to comply to the mips PIC calling convention
+    "la $t9, {handler}",
+    "jalr $t9",
 
     // restore the pre-alignment stack pointer that we saved in $s8
     // NOTE: we can't use macros here, and `move` is a macro, so we use `or`.
@@ -134,7 +135,6 @@ global_asm!(
     // TODO: iret?
 
     // restore assembler state
-    ".set macro",
     ".set at",
     ".set reorder",
 
@@ -154,20 +154,19 @@ pub struct ExceptionVectorStub {
     pub jump: MipsAbsJump,
 }
 impl ExceptionVectorStub {
-    pub fn new(target_addr: VirtAddr, tmp_reg: MipsInsnReg) -> Self {
+    pub fn new(target_addr: VirtAddr) -> Self {
+        // use $t9 as the jump register to comply to mips PIC calling convention.
+        let jump_reg = MipsInsnReg::T9;
         Self {
-            push: MipsPushReg::new(tmp_reg),
-            jump: MipsAbsJump::new(target_addr, tmp_reg),
+            push: MipsPushReg::new(jump_reg),
+            jump: MipsAbsJump::new(target_addr, jump_reg),
         }
     }
 }
 
 fn write_general_exception_vector() {
     // build the stub
-    let stub = ExceptionVectorStub::new(
-        VirtAddr(raw_general_exception_handler as usize),
-        MipsInsnReg::T0,
-    );
+    let stub = ExceptionVectorStub::new(VirtAddr(raw_general_exception_handler as usize));
 
     // when writing the stub, use kseg1, to avoid the cache.
     // we are writing instructions, and we want them to go directly to ram, and not be stuck in the data cache.
