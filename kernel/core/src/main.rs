@@ -42,6 +42,9 @@ global_asm!(
     ".globl raw_general_exception_handler",
     "raw_general_exception_handler:",
 
+    // save assembler state
+    ".set push",
+
     // this part requires precise control, so don't reorder
     ".set noreorder",
 
@@ -132,11 +135,11 @@ global_asm!(
     "lw $ra, 84($sp)",
     "addiu $sp, $sp, 88",
 
-    // TODO: iret?
+    // return from the interrupt
+    "eret",
 
     // restore assembler state
-    ".set at",
-    ".set reorder",
+    ".set pop",
 
     handler = sym general_exception_handler,
 );
@@ -144,8 +147,10 @@ unsafe extern "C" {
     unsafe fn raw_general_exception_handler();
 }
 
-fn general_exception_handler() {
-    panic!("got interrupt");
+extern "C" fn general_exception_handler() {
+    let cause = Cp0RegCause::read();
+    let pending = cause.pending_interrupts();
+    println!("{:?}", pending);
 }
 
 #[repr(C)]
@@ -231,7 +236,6 @@ fn exceptions_init() {
 
 #[no_mangle]
 extern "C" fn _start() {
-    println!("stub size: {}", size_of::<ExceptionVectorStub>());
     uart_init();
     exceptions_init();
     loop {

@@ -257,3 +257,6 @@ pub const KERNEL_STACK: PhysMemRegion = PhysMemRegion {
     start: EXCEPTION_VECTOR_PADDING.end,
     end: PhysAddr(EXCEPTION_VECTOR_PADDING.end.0 + 8 * 1024 * 1024),
 };
+
+/// the physical address of the memory mapped mips revision register.
+pub const MIPS_REVISION_REG_ADDR: PhysAddr = PhysAddr(0x1FC00010);
