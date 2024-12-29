@@ -1,11 +1,18 @@
 use std::{os::unix::process::CommandExt, path::Path, str::FromStr};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use binary_serde::{BinarySerde, BinarySerializerToVec};
 use clap::Parser;
 use devx_cmd::{cmd, run};
-use elflib::{ArchBitLength, ElfParser, Rel, RelocationType, SectionData};
 use loader_shared::LoaderInfoHeader;
+use object::{
+    elf::{
+        Dyn32, DT_MIPS_BASE_ADDRESS, DT_MIPS_CONFLICT, DT_MIPS_LOCAL_GOTNO, PT_LOAD, R_MIPS_REL32,
+        SHT_REL, SHT_RELA,
+    },
+    read::elf::{Dyn, ElfFile, ElfFile32, FileHeader, ProgramHeader, Rel, SectionHeader},
+    Endian, Object,
+};
 
 const PRE_POST_PROCESSING_KERNEL_FILE_PATH: &str =
     "target/target/release/pre_post_processing_kernel";
@@ -156,30 +163,52 @@ fn build_and_extract_loader_code() -> Result<Vec<u8>> {
         .current_dir("loader")
         .run()?;
     let loader_elf_content = read_file(LOADER_ELF_FILE_PATH)?;
-    Ok(get_first_phdr_content(&loader_elf_content)
+    Ok(extract_loader_code(&loader_elf_content)
         .context(format!(
             "failed to extract loader code from loader elf file {LOADER_ELF_FILE_PATH}"
         ))?
         .to_vec())
 }
 
-fn get_first_phdr_content(loader_elf_content: &[u8]) -> Result<&[u8]> {
-    let elf = ElfParser::new(loader_elf_content)?;
-    Ok(elf.program_headers()?.get(0)?.content_in_file()?)
+fn extract_loader_code(loader_elf_content: &[u8]) -> Result<&[u8]> {
+    let elf = ElfFile32::<object::Endianness>::parse(loader_elf_content)
+        .context("failed to parse elf")?;
+
+    let phdrs = elf.elf_program_headers();
+    if phdrs.len() != 1 {
+        bail!("expected a single phdr but found multiple");
+    }
+
+    let phdr0 = &phdrs[0];
+
+    let content = phdr0
+        .data(elf.endian(), elf.data())
+        .map_err(|_| anyhow!("failed to get content phdr"))?;
+
+    Ok(content)
+}
+
+fn object_endianness_to_binary_serde(endianness: object::Endianness) -> binary_serde::Endianness {
+    match endianness {
+        object::Endianness::Little => binary_serde::Endianness::Little,
+        object::Endianness::Big => binary_serde::Endianness::Big,
+    }
 }
 
 fn pack_kelf_file(kelf_content: &[u8], loader_code: &[u8]) -> Result<Vec<u8>> {
-    let elf = ElfParser::new(kelf_content)?;
+    let elf =
+        ElfFile32::<object::Endianness>::parse(kelf_content).context("failed to parse elf")?;
     let phdrs_info = process_elf_phdrs(&elf)?;
     let rels_info = process_elf_relocs(&elf)?;
     let loader_info = LoaderInfoHeader {
         relocations_amount: rels_info.encoded_rels_amount as u32,
-        initialized_size: phdrs_info.full_content.len() as u32,
+        initialized_size: phdrs_info.content.len() as u32,
         uninitialized_size: phdrs_info.uninitialized_size as u32,
-        entry_point_offset: elf.header()?.entry() as u32,
+        entry_point_offset: elf.elf_header().e_entry(elf.endian()),
     };
 
-    let mut serializer = BinarySerializerToVec::new(elf.file_info().endianness);
+    let mut serializer =
+        BinarySerializerToVec::new(object_endianness_to_binary_serde(elf.endian()));
 
     // add the code of the loader
     serializer.buffer_mut().extend_from_slice(loader_code);
@@ -189,7 +218,7 @@ fn pack_kelf_file(kelf_content: &[u8], loader_code: &[u8]) -> Result<Vec<u8>> {
     serializer.serialize(&loader_info);
 
     // add the encoded relocation
-    buf_align_len(serializer.buffer_mut(), rels_info.alignment);
+    buf_align_len(serializer.buffer_mut(), 4);
     serializer
         .buffer_mut()
         .extend_from_slice(&rels_info.encoded_rels);
@@ -197,85 +226,140 @@ fn pack_kelf_file(kelf_content: &[u8], loader_code: &[u8]) -> Result<Vec<u8>> {
     // add the wrapped code
     serializer
         .buffer_mut()
-        .extend_from_slice(&phdrs_info.full_content);
+        .extend_from_slice(&phdrs_info.content);
 
     Ok(serializer.into_buffer())
 }
 
-fn process_elf_phdrs(elf: &ElfParser) -> Result<PhdrsInfo> {
-    let mut full_content = Vec::new();
-    let phdrs = elf.program_headers()?;
-    let mut uninitialized_size = 0;
+fn process_elf_phdrs<'a>(elf: &ElfFile32<'a>) -> Result<PhdrsInfo<'a>> {
+    let phdrs = elf.elf_program_headers();
+
+    if phdrs.is_empty() {
+        bail!("no program header");
+    }
+
+    // take the first phdr
+    let phdr0 = &phdrs[0];
+
+    // make sure that the first phdr is loadable
+    if phdr0.p_type(elf.endian()) != PT_LOAD {
+        bail!("the first phdr must be loadable");
+    }
 
     // make sure that the first phdr starts at address 0
-    if phdrs.get(0)?.virt_addr() != 0 {
+    if phdr0.p_vaddr(elf.endian()) != 0 {
         bail!("the virtual address of the first phdr must be 0");
     }
 
-    for (phdr_idx, phdr_res) in phdrs.iter().enumerate() {
-        let phdr = phdr_res?;
-        let is_last_phdr = phdr_idx + 1 == phdrs.len();
-
-        // account for padding between the previous section and the current one
-        if phdr.virt_addr() > full_content.len() as u64 {
-            full_content.resize(phdr.virt_addr() as usize, 0);
-        }
-
-        // add the content of the phdr
-        full_content.extend_from_slice(phdr.content_in_file()?);
-
-        if phdr.size_in_memory() > phdr.size_in_file() {
-            // if the section's size in memory is larger than its size in file, then this section contains uninitialized data.
-            // this is only allowed in the last section, otherwise we would have gaps in our packed elf file.
-            if !is_last_phdr {
-                bail!(
-                    "phdr at index {} contains uninitialized data but is not the last phdr",
-                    phdr_idx
-                );
-            }
-            uninitialized_size = (phdr.size_in_memory() - phdr.size_in_file()) as usize;
-        }
+    // make sure that the rest of the phdrs are not loadable
+    if phdrs
+        .iter()
+        .skip(1)
+        .any(|phdr| phdr.p_type(elf.endian()) == PT_LOAD)
+    {
+        bail!("there is more than one loadable phdr");
     }
+
     Ok(PhdrsInfo {
-        full_content,
-        uninitialized_size,
+        content: phdr0
+            .data(elf.endian(), elf.data())
+            .map_err(|_| anyhow!("failed to get phdr content"))?,
+        uninitialized_size: (phdr0.p_memsz(elf.endian()) - phdr0.p_filesz(elf.endian())) as usize,
     })
 }
 
-fn process_elf_relocs(elf: &ElfParser) -> Result<RelsInfo> {
+fn find_dynamic_entry<E: Endian>(dynamic_entries: &[Dyn32<E>], tag: u32, endian: E) -> Result<u32> {
+    let entry = dynamic_entries
+        .iter()
+        .find(|entry| entry.d_tag.get(endian) == tag)
+        .context(format!("failed to find dynamic entry with tag 0x{:x}", tag))?;
+
+    Ok(entry.d_val(endian))
+}
+
+fn process_elf_relocs(elf: &ElfFile32) -> Result<RelsInfo> {
     let mut rel_encoder = RelEncoder::new(elf);
-    for shdr_res in elf.section_headers()? {
-        let shdr = shdr_res?;
-        let SectionData::RelocationSection(rel_section) = shdr.data()? else {
-            // not a relocation section, skip it.
+
+    let shdrs = elf.elf_section_table();
+
+    // make sure that we don't have any rela sections.
+    // mips does not support rela, only rel
+    if shdrs
+        .iter()
+        .any(|shdr| shdr.sh_type(elf.endian()) == SHT_RELA)
+    {
+        bail!("rela sections are not supported");
+    }
+
+    for shdr in shdrs.iter() {
+        if shdr.sh_type(elf.endian()) != SHT_REL {
             continue;
-        };
-        for rel_entry_res in rel_section.entries {
-            let rel_entry = rel_entry_res?;
-            let Rel::RelRegular(regular_rel) = &rel_entry.rel else {
-                bail!("mips64 is not supported");
-            };
-            if regular_rel.info().ty != RelocationType::MipsRel32 {
-                bail!("unsupported relocation type {:?}", regular_rel.info().ty);
-            };
+        }
+
+        let (rels, _) = shdr
+            .rel(elf.endian(), elf.data())
+            .context("failed to parse relocation section")?
+            .unwrap();
+
+        for rel in rels {
+            let rel_type = rel.r_type(elf.endian());
+            if rel_type != R_MIPS_REL32 {
+                bail!("unsupported relocation type {}", rel_type);
+            }
 
             // encode the relocation.
-            rel_encoder.encode(regular_rel.offset(), rel_entry.addend.unwrap_or_default());
+            rel_encoder.encode(rel.r_offset(elf.endian()));
         }
     }
-    // add got relocations
-    for shdr_res in elf.section_headers()? {
-        let shdr = shdr_res?;
-        if shdr.name()? != ".got" {
-            continue;
-        }
-        // relocate each entry in the .got section
-        for entry_off in (0..shdr.size()).step_by(4) {
-            rel_encoder.encode(shdr.address() + entry_off, 0)
-        }
+
+    // find the GOT section
+    let (_, got_shdr) = shdrs
+        .section_by_name(elf.endian(), b".got")
+        .context("no .got section")?;
+
+    // find and parse the dynamic section
+    let (_, dynamic_shdr) = shdrs
+        .section_by_name(elf.endian(), b".dynamic")
+        .context("no .dynamic section")?;
+
+    let (dynamic_entries, _) = dynamic_shdr
+        .dynamic(elf.endian(), elf.data())
+        .context("failed to parse dynamic section")?
+        .unwrap();
+
+    // now we want to encode the GOT relocations.
+    // to do that, we first need to verify some of the assumptions that we make about the elf.
+
+    // calculate the amount of GOT entries according to the size of the GOT
+    let got_entries_amount = got_shdr.sh_size(elf.endian()) / 4;
+
+    // find the amount of local GOT entries
+    let got_local_entries_amount =
+        find_dynamic_entry(dynamic_entries, DT_MIPS_LOCAL_GOTNO, elf.endian())
+            .context("failed to find number of local GOT entries")?;
+
+    // verify that all GOT entries are local
+    if got_entries_amount != got_local_entries_amount {
+        bail!("the GOT contains non-local entries");
     }
+
+    // make sure that the expected base address of the elf is 0.
+    // this makes sure that GOT relocations don't require subtracting an original assumed base address, and only require adding
+    // the new base address.
+    let expected_base_address =
+        find_dynamic_entry(dynamic_entries, DT_MIPS_BASE_ADDRESS, elf.endian())
+            .context("failed to find expected base address")?;
+    if expected_base_address != 0 {
+        bail!("the expected base address of the elf is not 0");
+    }
+
+    // relocate each entry in the GOT
+    let got_addr = got_shdr.sh_addr(elf.endian());
+    for i in 0..got_entries_amount {
+        rel_encoder.encode(got_addr + 4 * i)
+    }
+
     Ok(RelsInfo {
-        alignment: rel_encoder.alignment(),
         encoded_rels_amount: rel_encoder.encoded_rels_amount,
         encoded_rels: rel_encoder.serializer.into_buffer(),
     })
@@ -293,48 +377,25 @@ fn buf_align_len_to_type<T>(buf: &mut Vec<u8>) {
 }
 
 struct RelEncoder {
-    bit_length: ArchBitLength,
     serializer: BinarySerializerToVec,
     encoded_rels_amount: usize,
 }
 impl RelEncoder {
-    pub fn new(elf: &ElfParser) -> Self {
+    pub fn new(elf: &ElfFile32) -> Self {
         Self {
-            bit_length: elf.file_info().bit_length,
-            serializer: BinarySerializerToVec::new(elf.file_info().endianness),
+            serializer: BinarySerializerToVec::new(object_endianness_to_binary_serde(elf.endian())),
             encoded_rels_amount: 0,
         }
     }
-    pub fn encode(&mut self, addr: u64, addend: i64) {
-        match self.bit_length {
-            elflib::ArchBitLength::Arch32Bit => self.serializer.serialize(&EncodedRel32 {
-                addr: addr as u32,
-                addend: addend as i32,
-            }),
-            elflib::ArchBitLength::Arch64Bit => {
-                self.serializer.serialize(&EncodedRel64 { addr, addend })
-            }
-        };
+    pub fn encode(&mut self, addr: u32) {
+        self.serializer.serialize(&EncodedRel32 { addr });
         self.encoded_rels_amount += 1;
-    }
-    pub fn alignment(&self) -> usize {
-        match self.bit_length {
-            ArchBitLength::Arch32Bit => 4,
-            ArchBitLength::Arch64Bit => 8,
-        }
     }
 }
 
 #[derive(BinarySerde)]
 struct EncodedRel32 {
     addr: u32,
-    addend: i32,
-}
-
-#[derive(BinarySerde)]
-struct EncodedRel64 {
-    addr: u64,
-    addend: i64,
 }
 
 /// information extracted from the elfs relocations's
@@ -345,16 +406,13 @@ struct RelsInfo {
 
     /// the amount of encoded relocations.
     encoded_rels_amount: usize,
-
-    /// the required alignment of the encoded relocations information.
-    alignment: usize,
 }
 
-/// information extracted from the elfs phdr's
+/// information extracted from the elf's phdrs
 #[derive(Debug)]
-struct PhdrsInfo {
-    /// the entire content of all phdrs of the elf, as laid out in memory.
-    full_content: Vec<u8>,
+struct PhdrsInfo<'a> {
+    /// the entire loadable content of the file, extracted from the elf's phdrs.
+    content: &'a [u8],
 
     /// the size of the uninitialized data at the end of the initialized content.
     uninitialized_size: usize,
