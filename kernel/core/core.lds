@@ -2,6 +2,7 @@ ENTRY(_start)
 
 PHDRS {
     all PT_LOAD;
+    trash PT_LOAD;
 }
 
 SECTIONS
@@ -14,12 +15,12 @@ SECTIONS
     .sbss : { *(.sbss*) } : all
     .bss : { *(.bss*) } : all
 
-    .MIPS.abiflags : { *(.MIPS.abiflags) } : NONE
-    .reginfo : { *(.reginfo) } : NONE
-    .dynsym : { *(.dynsym) } : NONE
-    .hash : { *(.hash) } : NONE
-    .dynamic : { *(.dynamic) } : NONE
-    .dynstr : { *(.dynstr) } : NONE
-    .rld_map : { *(.rld_map) } : NONE
-    .rel.dyn : { *(.rel.*) } : NONE
+    .MIPS.abiflags : { *(.MIPS.abiflags) } : trash
+    .reginfo : { *(.reginfo) } : trash
+    .dynsym : { *(.dynsym) } : trash
+    .hash : { *(.hash) } : trash
+    .dynamic : { *(.dynamic) } : trash
+    .dynstr : { *(.dynstr) } : trash
+    .rld_map : { *(.rld_map) } : trash
+    .rel.dyn : { *(.rel.*) } : trash
 }

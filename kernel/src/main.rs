@@ -234,7 +234,7 @@ fn process_elf_phdrs<'a>(elf: &ElfFile32<'a>) -> Result<PhdrsInfo<'a>> {
     let phdrs = elf.elf_program_headers();
 
     if phdrs.is_empty() {
-        bail!("no program header");
+        bail!("no program headers");
     }
 
     // take the first phdr
@@ -248,15 +248,6 @@ fn process_elf_phdrs<'a>(elf: &ElfFile32<'a>) -> Result<PhdrsInfo<'a>> {
     // make sure that the first phdr starts at address 0
     if phdr0.p_vaddr(elf.endian()) != 0 {
         bail!("the virtual address of the first phdr must be 0");
-    }
-
-    // make sure that the rest of the phdrs are not loadable
-    if phdrs
-        .iter()
-        .skip(1)
-        .any(|phdr| phdr.p_type(elf.endian()) == PT_LOAD)
-    {
-        bail!("there is more than one loadable phdr");
     }
 
     Ok(PhdrsInfo {
