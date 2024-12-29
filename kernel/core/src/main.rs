@@ -156,6 +156,7 @@ pub struct ExceptionVectorStub {
 impl ExceptionVectorStub {
     pub fn new(target_addr: VirtAddr) -> Self {
         // use $t9 as the jump register to comply to mips PIC calling convention.
+        // this is required for the exception handler to be able to properly calculate its $gp value.
         let jump_reg = MipsInsnReg::T9;
         Self {
             push: MipsPushReg::new(jump_reg),
