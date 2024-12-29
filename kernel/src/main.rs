@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use binary_serde::{BinarySerde, BinarySerializerToVec};
 use clap::Parser;
 use devx_cmd::{cmd, run};
-use loader_shared::LoaderInfoHeader;
+use loader_shared::{LoaderEncodedRel, LoaderInfoHeader};
 use object::{
     elf::{
         Dyn32, DT_MIPS_BASE_ADDRESS, DT_MIPS_CONFLICT, DT_MIPS_LOCAL_GOTNO, PT_LOAD, R_MIPS_REL32,
@@ -387,15 +387,10 @@ impl RelEncoder {
             encoded_rels_amount: 0,
         }
     }
-    pub fn encode(&mut self, addr: u32) {
-        self.serializer.serialize(&EncodedRel32 { addr });
+    pub fn encode(&mut self, offset: u32) {
+        self.serializer.serialize(&LoaderEncodedRel { offset });
         self.encoded_rels_amount += 1;
     }
-}
-
-#[derive(BinarySerde)]
-struct EncodedRel32 {
-    addr: u32,
 }
 
 /// information extracted from the elfs relocations's

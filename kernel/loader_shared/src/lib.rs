@@ -17,3 +17,10 @@ pub struct LoaderInfoHeader {
     /// the offset of the entry point inside the wrapped code.
     pub entry_point_offset: u32,
 }
+
+#[derive(BinarySerde, Debug, Clone)]
+#[repr(C)]
+pub struct LoaderEncodedRel {
+    /// the offset, from the start of the shellcode that is being loaded, of the location to which the relocation is to be applied.
+    pub offset: u32,
+}

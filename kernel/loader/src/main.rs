@@ -16,13 +16,7 @@ use hal::{
         Cp0RegConfig1, Cp0RegDTagLo, Cp0RegITagLo,
     },
 };
-use loader_shared::LoaderInfoHeader;
-
-#[repr(C)]
-struct EncodedRel {
-    offset: usize,
-    addend: isize,
-}
+use loader_shared::{LoaderEncodedRel, LoaderInfoHeader};
 
 /// the signature of the entry point of the wrapped code.
 pub type Entrypoint = unsafe extern "C" fn();
@@ -78,7 +72,7 @@ unsafe extern "C" fn loader_entrypoint() {
 
     // parse the relocations
     let relocations =
-        cursor.align_and_extract_slice::<EncodedRel>(info.relocations_amount as usize);
+        cursor.align_and_extract_slice::<LoaderEncodedRel>(info.relocations_amount as usize);
 
     // right after the relocation information comes the wrapped code.
     let wrapped_code_ptr = cursor.cur_ptr;
@@ -89,7 +83,9 @@ unsafe extern "C" fn loader_entrypoint() {
     kernel_dst_addr.copy_from_nonoverlapping(wrapped_code_ptr, info.initialized_size as usize);
 
     for relocation in relocations {
-        let relocated_value = &mut *kernel_dst_addr.add(relocation.offset).cast::<usize>();
+        let relocated_value = &mut *kernel_dst_addr
+            .add(relocation.offset as usize)
+            .cast::<usize>();
 
         // to apply the relocation, just add the code address to the memory location.
         *relocated_value += kernel_dst_addr as usize;
