@@ -6,9 +6,13 @@ PHDRS {
 
 SECTIONS
 {
-    .initialized : { *(.text*) *(.rodata*) *(.sdata*) *(.data*) } : all
+    .text : { *(.text*) } : all
+    .rodata : { *(.rodata*) } : all
+    .data : { *(.data*) } : all
+    .sdata : { *(.sdata*) } : all
     .got : { *(.got*) } : all
-    .uninitialized : { *(.bss*) *(.sbss*) } : all
+    .sbss : { *(.sbss*) } : all
+    .bss : { *(.bss*) } : all
 
     .MIPS.abiflags : { *(.MIPS.abiflags) } : NONE
     .reginfo : { *(.reginfo) } : NONE
