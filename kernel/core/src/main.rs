@@ -8,8 +8,8 @@ use hal::{
     insn::{MipsAbsJump, MipsInsnReg, MipsMoveInsn, MipsPushReg},
     mem::{VirtAddr, GENERAL_EXCEPTION_VECTOR_ADDR},
     sys::{
-        Cp0Reg, Cp0RegCause, Cp0RegStatus, CpuErrorLevel, CpuExceptionLevel, InterruptBitmap,
-        OperatingMode,
+        Cp0Reg, Cp0RegCause, Cp0RegCompare, Cp0RegCount, Cp0RegStatus, CpuErrorLevel,
+        CpuExceptionLevel, InterruptBitmap, OperatingMode,
     },
 };
 use uart::{uart_init, uart_read_byte};
@@ -126,6 +126,7 @@ global_asm!(
     // call the handler using $t9 to comply to the mips PIC calling convention
     "la $t9, {handler}",
     "jalr $t9",
+    "nop",
 
     // restore the pre-alignment stack pointer that we saved in $s8
     "move $sp, $s8",
