@@ -66,6 +66,24 @@ impl MipsInsnReg {
     }
 }
 
+/// a mips instruction which moves one register into another
+#[repr(C)]
+pub struct MipsMoveInsn {
+    pub ori: MipsInsnIType,
+}
+impl MipsMoveInsn {
+    pub fn new(dst_reg: MipsInsnReg, src_reg: MipsInsnReg) -> Self {
+        Self {
+            ori: MipsInsnIType::from_fields(MipsInsnITypeFields {
+                imm: 0,
+                rt: dst_reg.encode(),
+                rs: src_reg.encode(),
+                opcode: MipsInsnOpcode::Ori,
+            }),
+        }
+    }
+}
+
 /// a mips instruction sequence which pushes a register onto the stack
 #[repr(C)]
 pub struct MipsPushReg {

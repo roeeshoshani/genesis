@@ -5,7 +5,7 @@
 use bitpiece::*;
 use core::{arch::global_asm, panic::PanicInfo};
 use hal::{
-    insn::{MipsAbsJump, MipsInsnReg, MipsPushReg},
+    insn::{MipsAbsJump, MipsInsnReg, MipsMoveInsn, MipsPushReg},
     mem::{VirtAddr, GENERAL_EXCEPTION_VECTOR_ADDR},
     sys::{
         Cp0Reg, Cp0RegCause, Cp0RegStatus, CpuErrorLevel, CpuExceptionLevel, InterruptBitmap,
@@ -37,6 +37,27 @@ pub fn enable_interrupts() {
     set_interrupts_enabled(true);
 }
 
+#[repr(C)]
+pub struct ExceptionVectorStub {
+    pub save_tmp_reg: MipsMoveInsn,
+    pub jump: MipsAbsJump,
+}
+impl ExceptionVectorStub {
+    /// the register used to perform the absolute jump to the exception handler.
+    /// use $t9 as the jump register to comply to mips PIC calling convention.
+    /// this is required for the exception handler to be able to properly calculate its $gp value.
+    pub const JUMP_REG: MipsInsnReg = MipsInsnReg::T9;
+
+    pub fn new(target_addr: VirtAddr) -> Self {
+        Self {
+            // save the jump register in k0
+            save_tmp_reg: MipsMoveInsn::new(MipsInsnReg::K0, Self::JUMP_REG),
+            // perform the jump
+            jump: MipsAbsJump::new(target_addr, Self::JUMP_REG),
+        }
+    }
+}
+
 global_asm!(
     // define a symbol for the raw exception handler
     ".globl raw_general_exception_handler",
@@ -57,16 +78,16 @@ global_asm!(
     // the GOT using gp-relative access, as should be performed in PIC mips code.
     ".cpload $t9",
 
-    // restore the register pushed to the stack by the stub
-    "lw $t9, 0($sp)",
-    "addiu $sp, $sp, 4",
+    // restore the $t9 register which was saved by the stub in $k0
+    "move $t9, $k0",
 
     // now save all registers on the stack, except for the following registers:
     // - the $zero register, which does not need to be saved for obvious reasons
     // - $sp, which is preserved across function calls due to calling convention
     // - $s0-$s7, which are preserved due to calling convention
-    // NOTE: an alert reader might notice that we also don't need to save $s8, as it is also preserved across function calls.
-    // but, we later use it as part of this handler (to store the pre-alignment stack pointer), so we must save it as well.
+    // NOTE: an alert reader might notice that we also don't need to save $s8, as it is also preserved across function calls,
+    // but we still save it.
+    // this is because we later use it as part of this handler (to store the pre-alignment stack pointer), so we must save it as well.
     "addiu $sp, $sp, -88",
     "sw $at, 0($sp)",
     "sw $v0, 4($sp)",
@@ -107,8 +128,7 @@ global_asm!(
     "jalr $t9",
 
     // restore the pre-alignment stack pointer that we saved in $s8
-    // NOTE: we can't use macros here, and `move` is a macro, so we use `or`.
-    "or $sp, $s8, $0",
+    "move $sp, $s8",
 
     // restore all registers
     "lw $at, 0($sp)",
@@ -153,24 +173,7 @@ extern "C" fn general_exception_handler() {
     println!("{:?}", pending);
 }
 
-#[repr(C)]
-pub struct ExceptionVectorStub {
-    pub push: MipsPushReg,
-    pub jump: MipsAbsJump,
-}
-impl ExceptionVectorStub {
-    pub fn new(target_addr: VirtAddr) -> Self {
-        // use $t9 as the jump register to comply to mips PIC calling convention.
-        // this is required for the exception handler to be able to properly calculate its $gp value.
-        let jump_reg = MipsInsnReg::T9;
-        Self {
-            push: MipsPushReg::new(jump_reg),
-            jump: MipsAbsJump::new(target_addr, jump_reg),
-        }
-    }
-}
-
-fn write_general_exception_vector() {
+fn write_general_exception_vector_sub() {
     // build the stub
     let stub = ExceptionVectorStub::new(VirtAddr(raw_general_exception_handler as usize));
 
@@ -229,7 +232,7 @@ fn exceptions_init_cp0_cause() {
 }
 
 fn exceptions_init() {
-    write_general_exception_vector();
+    write_general_exception_vector_sub();
     exceptions_init_cp0_status();
     exceptions_init_cp0_cause();
 }
