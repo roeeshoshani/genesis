@@ -90,17 +90,21 @@ global_asm!(
     // but first, we must save the original stack pointer before aligning, so that we can restore it later.
     // we save is in $s8 as it is saved across function calls, so the handler will not overwrite it.
     // NOTE: we can't use macros here, and `move` is a macro, so we use `or`.
-    "or $s8, $sp, $r0",
+    "or $s8, $sp, $0",
+
+    // calculate the mask required to align the stack pointer to 8 bytes
+    "lui $t0, 0xffff",
+    "ori $t0, $t0, 0xfff8",
 
     // now align the stack pointer
-    "andi $sp, $sp, 0xfffffff8",
+    "and $sp, $sp, $t0",
 
     // call the rust handler
     "bal {handler}",
 
     // restore the pre-alignment stack pointer that we saved in $s8
     // NOTE: we can't use macros here, and `move` is a macro, so we use `or`.
-    "or $sp, $s8, $r0",
+    "or $sp, $s8, $0",
 
     // restore all registers
     "lw $at, 0($sp)",
