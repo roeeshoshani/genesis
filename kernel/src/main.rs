@@ -92,7 +92,6 @@ fn run() -> Result<()> {
         FINAL_KERNEL_FILE_PATH,
         // gdb stub on tcp port 1234
         "-s",
-        "-S",
     )?;
     Ok(())
 }
