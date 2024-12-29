@@ -5,6 +5,8 @@ use bitpiece::*;
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Cp0RegGroup {
+    Count = 9,
+    Compare = 11,
     Status = 12,
     Cause = 13,
     Config = 16,
@@ -270,6 +272,28 @@ impl Cp0Reg for Cp0RegDTagLo {
     const ADDR: Cp0RegAddr = Cp0RegAddr {
         group: Cp0RegGroup::Cache,
         select: 2,
+    };
+    type Value = u32;
+}
+
+/// the Count register of coprocessor 0
+#[derive(Debug, Clone, Copy)]
+pub struct Cp0RegCount;
+impl Cp0Reg for Cp0RegCount {
+    const ADDR: Cp0RegAddr = Cp0RegAddr {
+        group: Cp0RegGroup::Count,
+        select: 0,
+    };
+    type Value = u32;
+}
+
+/// the Compare register of coprocessor 0
+#[derive(Debug, Clone, Copy)]
+pub struct Cp0RegCompare;
+impl Cp0Reg for Cp0RegCompare {
+    const ADDR: Cp0RegAddr = Cp0RegAddr {
+        group: Cp0RegGroup::Compare,
+        select: 0,
     };
     type Value = u32;
 }

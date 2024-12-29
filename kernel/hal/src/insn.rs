@@ -187,7 +187,7 @@ impl MipsRelJump {
                 rs: encode_reg(0),
                 opcode: MipsInsnOpcode::Beq,
             }),
-            nop: MipsInsnRType::ones(),
+            nop: MipsInsnRType::zeroes(),
         }
     }
 }
@@ -197,6 +197,7 @@ impl MipsRelJump {
 pub struct MipsAbsJump {
     pub load_imm_to_reg: MipsLoadImm32ToReg,
     pub jr: MipsInsnRType,
+    pub nop: MipsInsnRType,
 }
 impl MipsAbsJump {
     pub fn new(target_addr: VirtAddr, reg: MipsInsnReg) -> Self {
@@ -213,6 +214,7 @@ impl MipsAbsJump {
                 rs: reg.encode(),
                 opcode: MipsInsnOpcode::Special,
             }),
+            nop: MipsInsnRType::zeroes(),
         }
     }
 }
