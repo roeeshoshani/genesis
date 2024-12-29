@@ -43,7 +43,7 @@ pub enum MipsInsnReg {
     K1 = 27,
     Gp = 28,
     Sp = 29,
-    Fp = 30,
+    S8 = 30,
     Ra = 31,
 }
 

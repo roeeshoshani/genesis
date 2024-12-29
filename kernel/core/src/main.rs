@@ -60,8 +60,8 @@ global_asm!(
     // now save all registers on the stack, except for the following registers:
     // - the $zero register, which does not need to be saved for obvious reasons
     // - $sp, which is preserved across function calls due to calling convention
-    // - $s0-$s7, which are preserved due to calling convention
-    "addiu $sp, $sp, -88",
+    // - $s0-$s8, which are preserved due to calling convention
+    "addiu $sp, $sp, -84",
     "sw $at, 0($sp)",
     "sw $v0, 4($sp)",
     "sw $v1, 8($sp)",
@@ -82,8 +82,7 @@ global_asm!(
     "sw $k0, 68($sp)",
     "sw $k1, 72($sp)",
     "sw $gp, 76($sp)",
-    "sw $fp, 80($sp)",
-    "sw $ra, 84($sp)",
+    "sw $ra, 80($sp)",
 
     // we are done saving all registers on the stack, so we can now once again use the assembler macros which may implicitly use
     // temporary registers.
@@ -113,9 +112,8 @@ global_asm!(
     "lw $k0, 68($sp)",
     "lw $k1, 72($sp)",
     "lw $gp, 76($sp)",
-    "lw $fp, 80($sp)",
-    "lw $ra, 84($sp)",
-    "addiu $sp, $sp, 88",
+    "lw $ra, 80($sp)",
+    "addiu $sp, $sp, 84",
 
     // TODO: iret?
 
