@@ -35,7 +35,7 @@ impl UartRegs {
     }
     mmio_reg! {
         /// the LCTRL (line control) register.
-        line_control, UartFifoControlReg, ReadWrite, 0x18
+        line_control, UartLineControlReg, ReadWrite, 0x18
     }
     mmio_reg! {
         /// the MCTRL (modem control) register.

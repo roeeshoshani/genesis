@@ -1,5 +1,5 @@
 use bitpiece::*;
-use hal::uart::*;
+use hal::mmio::uart::*;
 
 fn uart_set_divisor_latch_access(value: bool) {
     let mut line_control_value = UartRegs::line_control().read();

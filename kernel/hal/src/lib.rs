@@ -5,5 +5,5 @@ mod mmio_regs;
 
 pub mod insn;
 pub mod mem;
+pub mod mmio;
 pub mod sys;
-pub mod uart;
