@@ -171,6 +171,16 @@ unsafe extern "C" {
 extern "C" fn general_exception_handler() {
     let cause = Cp0RegCause::read();
     let pending = cause.pending_interrupts();
+
+    // we do not support software interrupts
+    let pending_software_interrupts = pending.software().0;
+    if pending_software_interrupts != 0 {
+        panic!(
+            "software interrupts are not supported, but got pending software interrupts: 0b{:b}",
+            pending_software_interrupts
+        );
+    }
+
     println!("{:?}", pending);
 }
 
