@@ -9,7 +9,7 @@ use hal::{
     mem::{VirtAddr, GENERAL_EXCEPTION_VECTOR_ADDR},
     sys::{
         Cp0Reg, Cp0RegCause, Cp0RegCompare, Cp0RegCount, Cp0RegStatus, CpuErrorLevel,
-        CpuExceptionLevel, InterruptBitmap, OperatingMode,
+        CpuExceptionLevel, InterruptBitmap, MipsMaltaRevisionInfo, OperatingMode,
     },
 };
 use uart::{uart_init, uart_read_byte};
@@ -261,6 +261,7 @@ fn exceptions_init() {
 extern "C" fn _start() {
     uart_init();
     exceptions_init();
+    println!("{:?}", MipsMaltaRevisionInfo::read().to_fields());
     loop {
         let byte = uart_read_byte();
         println!("received byte: {}", byte);

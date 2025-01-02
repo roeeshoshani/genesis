@@ -2,18 +2,18 @@ use bitpiece::*;
 
 use crate::mem::MIPS_REVISION_REG_ADDR;
 
-/// the mips REVISION register, which contains revision information about different components in the board.
+/// the mips malta REVISION register, which contains revision information about different components in the board.
 #[bitpiece(32)]
 #[derive(Debug, Clone, Copy)]
-pub struct MipsRevisionInfo {
+pub struct MipsMaltaRevisionInfo {
     pub product_revision: B4,
-    pub product_id: B4,
+    pub product_id: MipsProductId,
     pub core_board_revision: B2,
     pub core_board_id: B6,
     pub cbus_fpga_revision: B8,
     pub reserved: B8,
 }
-impl MipsRevisionInfo {
+impl MipsMaltaRevisionInfo {
     /// reads the value of the REVISION register
     pub fn read() -> Self {
         // we use an uncachable address to not rely on caches here, since this might be used very early on.
@@ -23,6 +23,27 @@ impl MipsRevisionInfo {
         let bits = unsafe { core::ptr::read_volatile(virt_addr.unwrap().as_ptr::<u32>()) };
         Self::from_bits(bits)
     }
+}
+
+#[bitpiece(4)]
+#[derive(Debug, Clone, Copy)]
+pub enum MipsProductId {
+    Atlas = 0,
+    Sead = 1,
+    Malta = 2,
+    Sead2 = 3,
+    Unknown4 = 4,
+    Unknown5 = 5,
+    Unknown6 = 6,
+    Unknown7 = 7,
+    Unknown8 = 8,
+    Unknown9 = 9,
+    Unknown10 = 10,
+    Unknown11 = 11,
+    Unknown12 = 12,
+    Unknown13 = 13,
+    ThirdParty = 14,
+    Unknown15 = 15,
 }
 
 /// the register group of a coprocessor 0 register.
