@@ -188,17 +188,23 @@ fn write_general_exception_vector_sub() {
     // build the stub
     let stub = ExceptionVectorStub::new(VirtAddr(raw_general_exception_handler as usize));
 
+    // calculate the virtual address to use when writing the stub to memory.
+    //
     // use an uncachable address since we are writing instructions, and we want them to go directly to ram, and not be stuck
     // in the data cache.
     let general_exception_vector_addr = GENERAL_EXCEPTION_VECTOR_ADDR
         .kseg_uncachable_addr()
         .unwrap();
 
+    // write it
     unsafe {
         general_exception_vector_addr
             .as_mut_ptr::<ExceptionVectorStub>()
             .write_volatile(stub)
     };
+
+    // we do not need to flush the icache as we have never executed the exception vector yet, since we haven't enabled interrupts yet,
+    // so we know that it can't be present in the icache at this point.
 }
 
 fn exceptions_init_cp0_status() {
