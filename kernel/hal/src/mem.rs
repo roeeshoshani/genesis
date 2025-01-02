@@ -68,18 +68,6 @@ impl PhysAddr {
         Self(value)
     }
 
-    /// returns the virtual kseg0 address which maps to this physical address, if such an address even exists.
-    /// if the physical address is too large to fit in kseg0, `None` is returned.
-    pub const fn kseg0_addr(self) -> Option<VirtAddr> {
-        KSEG0.addr_at_offset(self.0)
-    }
-
-    /// returns the virtual kseg1 address which maps to this physical address, if such an address even exists.
-    /// if the physical address is too large to fit in kseg1, `None` is returned.
-    pub const fn kseg1_addr(self) -> Option<VirtAddr> {
-        KSEG1.addr_at_offset(self.0)
-    }
-
     /// returns the virtual cachable kseg0 address which maps to this physical address, if such an address even exists.
     /// if the physical address is too large to fit in kseg0, `None` is returned.
     pub const fn kseg_cachable_addr(self) -> Option<VirtAddr> {
