@@ -1,5 +1,30 @@
 use bitpiece::*;
 
+use crate::mem::MIPS_REVISION_REG_ADDR;
+
+/// the mips REVISION register, which contains revision information about different components in the board.
+#[bitpiece(32)]
+#[derive(Debug, Clone, Copy)]
+pub struct MipsRevisionInfo {
+    pub product_revision: B4,
+    pub product_id: B4,
+    pub core_board_revision: B2,
+    pub core_board_id: B6,
+    pub cbus_fpga_revision: B8,
+    pub reserved: B8,
+}
+impl MipsRevisionInfo {
+    /// reads the value of the REVISION register
+    pub fn read() -> Self {
+        // we use an uncachable address to not rely on caches here, since this might be used very early on.
+        // we could have used caching since this will never change anyway, but we prefer the flexibility of using an uncached address.
+        let virt_addr = MIPS_REVISION_REG_ADDR.kseg_uncachable_addr();
+
+        let bits = unsafe { core::ptr::read_volatile(virt_addr.unwrap().as_ptr::<u32>()) };
+        Self::from_bits(bits)
+    }
+}
+
 /// the register group of a coprocessor 0 register.
 /// this can be combines with a `select` value to get a percise register address.
 #[repr(u8)]

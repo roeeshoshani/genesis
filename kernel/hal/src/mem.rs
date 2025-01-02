@@ -79,6 +79,18 @@ impl PhysAddr {
     pub const fn kseg1_addr(self) -> Option<VirtAddr> {
         KSEG1.addr_at_offset(self.0)
     }
+
+    /// returns the virtual cachable kseg0 address which maps to this physical address, if such an address even exists.
+    /// if the physical address is too large to fit in kseg0, `None` is returned.
+    pub const fn kseg_cachable_addr(self) -> Option<VirtAddr> {
+        KSEG0.addr_at_offset(self.0)
+    }
+
+    /// returns the virtual uncachable kseg1 address which maps to this physical address, if such an address even exists.
+    /// if the physical address is too large to fit in kseg1, `None` is returned.
+    pub const fn kseg_uncachable_addr(self) -> Option<VirtAddr> {
+        KSEG1.addr_at_offset(self.0)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -150,6 +162,14 @@ pub struct VirtMemRegion {
     pub end: VirtAddr,
 }
 impl VirtMemRegion {
+    /// creates a new region with the given start address and size
+    pub const fn new(start: VirtAddr, size: usize) -> Self {
+        Self {
+            start,
+            end: VirtAddr(start.0 + size),
+        }
+    }
+
     /// returns the size of the region
     pub const fn size(&self) -> usize {
         self.end.0 - self.start.0
@@ -191,6 +211,14 @@ pub struct PhysMemRegion {
     pub end: PhysAddr,
 }
 impl PhysMemRegion {
+    /// creates a new region with the given start address and size
+    pub const fn new(start: PhysAddr, size: usize) -> Self {
+        Self {
+            start,
+            end: PhysAddr(start.0 + size),
+        }
+    }
+
     /// returns the size of the region
     pub const fn size(&self) -> usize {
         self.end.0 - self.start.0
@@ -245,18 +273,14 @@ pub const GENERAL_EXCEPTION_VECTOR_ADDR: PhysAddr =
     PhysAddr(EXCEPTION_VECTOR_BASE.0 + GENERAL_EXCEPTION_VECTOR_OFFSET);
 
 /// the region of padding to leave at the start of the physical address space to avoid overwriting the exception vector.
-pub const EXCEPTION_VECTOR_PADDING: PhysMemRegion = PhysMemRegion {
-    start: EXCEPTION_VECTOR_BASE,
-    end: PhysAddr(EXCEPTION_VECTOR_BASE.0 + 0x300),
-};
+pub const EXCEPTION_VECTOR_PADDING: PhysMemRegion =
+    PhysMemRegion::new(EXCEPTION_VECTOR_BASE, 0x300);
 
 /// the physical memory region of the kernel stack.
 /// we point the stack to the start of the physical address space right after the exception vector.
 /// the first 128MB at the start of the physical address space are all mapped to ram, so this ensures that our stack will use ram.
-pub const KERNEL_STACK: PhysMemRegion = PhysMemRegion {
-    start: EXCEPTION_VECTOR_PADDING.end,
-    end: PhysAddr(EXCEPTION_VECTOR_PADDING.end.0 + 8 * 1024 * 1024),
-};
+pub const KERNEL_STACK: PhysMemRegion =
+    PhysMemRegion::new(EXCEPTION_VECTOR_PADDING.end, 8 * 1024 * 1024);
 
 /// the physical address of the memory mapped mips revision register.
 pub const MIPS_REVISION_REG_ADDR: PhysAddr = PhysAddr(0x1FC00010);

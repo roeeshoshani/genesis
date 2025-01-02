@@ -15,8 +15,8 @@ impl UartRegs {
     pub const BASE_PHYS_ADDR: PhysAddr = PhysAddr(0x1F00_0900);
 
     /// the base virtual address of the UART registers.
-    /// that virtual address in in kseg1 so that it is not cachable, which is important for mmio addresses.
-    pub const BASE_VIRT_ADDR: VirtAddr = UartRegs::BASE_PHYS_ADDR.kseg1_addr().unwrap();
+    /// we uncachable address, which is important for mmio addresses.
+    pub const BASE_VIRT_ADDR: VirtAddr = UartRegs::BASE_PHYS_ADDR.kseg_uncachable_addr().unwrap();
 
     /// the RX register.
     /// this is only accessible if the divisor latch access bit is not set.
