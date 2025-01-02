@@ -78,8 +78,13 @@ unsafe extern "C" fn loader_entrypoint() {
     let wrapped_code_ptr = cursor.cur_ptr;
 
     // copy the wrapped kernel code from ROM to RAM so that we can relocate it.
-    // put the kernel at a physical address which is right after the end of the stack. map it using kseg0 so that it will be cached.
-    let kernel_dst_addr = KERNEL_STACK.end.kseg0_addr().unwrap().as_mut_ptr::<u8>();
+    // put the kernel at a physical address which is right after the end of the stack.
+    // use a cachable address since we want the kernel to be cached.
+    let kernel_dst_addr = KERNEL_STACK
+        .end
+        .kseg_cachable_addr()
+        .unwrap()
+        .as_mut_ptr::<u8>();
     kernel_dst_addr.copy_from_nonoverlapping(wrapped_code_ptr, info.initialized_size as usize);
 
     for relocation in relocations {

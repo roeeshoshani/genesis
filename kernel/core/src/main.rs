@@ -188,9 +188,12 @@ fn write_general_exception_vector_sub() {
     // build the stub
     let stub = ExceptionVectorStub::new(VirtAddr(raw_general_exception_handler as usize));
 
-    // when writing the stub, use kseg1, to avoid the cache.
-    // we are writing instructions, and we want them to go directly to ram, and not be stuck in the data cache.
-    let general_exception_vector_addr = GENERAL_EXCEPTION_VECTOR_ADDR.kseg1_addr().unwrap();
+    // use an uncachable address since we are writing instructions, and we want them to go directly to ram, and not be stuck
+    // in the data cache.
+    let general_exception_vector_addr = GENERAL_EXCEPTION_VECTOR_ADDR
+        .kseg_uncachable_addr()
+        .unwrap();
+
     unsafe {
         general_exception_vector_addr
             .as_mut_ptr::<ExceptionVectorStub>()
