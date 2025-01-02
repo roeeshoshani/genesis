@@ -1,145 +1,67 @@
 use core::ptr::NonNull;
 
-use bitpiece::*;
-use volatile::{
-    access::{ReadOnly, ReadWrite, WriteOnly},
-    VolatilePtr,
+use crate::{
+    mem::PhysAddr,
+    mmio_regs::{mmio_base, mmio_reg},
 };
-
-use crate::mem::{PhysAddr, VirtAddr};
+use bitpiece::*;
 
 /// a struct representing the UART hardware registers, providing access to them.
 pub struct UartRegs;
 impl UartRegs {
-    /// the base physical address of the UART registers.
-    pub const BASE_PHYS_ADDR: PhysAddr = PhysAddr(0x1F00_0900);
+    mmio_base!(PhysAddr(0x1F00_0900));
 
-    /// the base virtual address of the UART registers.
-    /// we uncachable address, which is important for mmio addresses.
-    pub const BASE_VIRT_ADDR: VirtAddr = UartRegs::BASE_PHYS_ADDR.kseg_uncachable_addr().unwrap();
-
-    /// the RX register.
-    /// this is only accessible if the divisor latch access bit is not set.
-    pub fn rx() -> VolatilePtr<'static, u8, ReadOnly> {
-        unsafe {
-            VolatilePtr::new_restricted(
-                ReadOnly,
-                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x0).as_mut()),
-            )
-        }
+    mmio_reg! {
+        /// the RX register.
+        /// this is only accessible if the divisor latch access bit is not set.
+        rx, u8, ReadOnly, 0x0
     }
-
-    /// the TX register.
-    /// this is only accessible if the divisor latch access bit is not set.
-    pub fn tx() -> VolatilePtr<'static, u8, WriteOnly> {
-        unsafe {
-            VolatilePtr::new_restricted(
-                WriteOnly,
-                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x0).as_mut()),
-            )
-        }
+    mmio_reg! {
+        /// the TX register.
+        /// this is only accessible if the divisor latch access bit is not set.
+        tx, u8, WriteOnly, 0x0
     }
-
-    /// the INTEN (interrupt enable) register.
-    pub fn interrupt_enable() -> VolatilePtr<'static, UartInterruptEnableReg, ReadWrite> {
-        unsafe {
-            VolatilePtr::new_restricted(
-                ReadWrite,
-                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x8).as_mut()),
-            )
-        }
+    mmio_reg! {
+        /// the INTEN (interrupt enable) register.
+        interrupt_enable, UartInterruptEnableReg, ReadWrite, 0x8
     }
-
-    /// the II (interrup identification) register.
-    pub fn interrupt_id() -> VolatilePtr<'static, UartInterruptIdReg, ReadOnly> {
-        unsafe {
-            VolatilePtr::new_restricted(
-                ReadOnly,
-                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x10).as_mut()),
-            )
-        }
+    mmio_reg! {
+        /// the II (interrup identification) register.
+        interrupt_id, UartInterruptIdReg, ReadOnly, 0x10
     }
-
-    /// the FIFO (fifo control) register.
-    pub fn fifo_control() -> VolatilePtr<'static, UartFifoControlReg, WriteOnly> {
-        unsafe {
-            VolatilePtr::new_restricted(
-                WriteOnly,
-                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x10).as_mut()),
-            )
-        }
+    mmio_reg! {
+        /// the FIFO (fifo control) register.
+        fifo_control, UartFifoControlReg, WriteOnly, 0x10
     }
-
-    /// the LCTRL (line control) register.
-    pub fn line_control() -> VolatilePtr<'static, UartLineControlReg, ReadWrite> {
-        unsafe {
-            VolatilePtr::new_restricted(
-                ReadWrite,
-                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x18).as_mut()),
-            )
-        }
+    mmio_reg! {
+        /// the LCTRL (line control) register.
+        line_control, UartFifoControlReg, ReadWrite, 0x18
     }
-
-    /// the MCTRL (modem control) register.
-    pub fn modem_control() -> VolatilePtr<'static, UartModemControlReg, ReadWrite> {
-        unsafe {
-            VolatilePtr::new_restricted(
-                ReadWrite,
-                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x20).as_mut()),
-            )
-        }
+    mmio_reg! {
+        /// the MCTRL (modem control) register.
+        modem_control, UartModemControlReg, ReadWrite, 0x20
     }
-
-    /// the LSTAT (line status) register.
-    pub fn line_status() -> VolatilePtr<'static, UartLineStatusReg, ReadWrite> {
-        unsafe {
-            VolatilePtr::new_restricted(
-                ReadWrite,
-                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x28).as_mut()),
-            )
-        }
+    mmio_reg! {
+        /// the LSTAT (line status) register.
+        line_status, UartLineStatusReg, ReadWrite, 0x28
     }
-
-    /// the MSTAT (modem status) register.
-    pub fn modem_status() -> VolatilePtr<'static, UartModemStatusReg, ReadWrite> {
-        unsafe {
-            VolatilePtr::new_restricted(
-                ReadWrite,
-                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x30).as_mut()),
-            )
-        }
+    mmio_reg! {
+        /// the MSTAT (modem status) register.
+        modem_status, UartModemStatusReg, ReadWrite, 0x30
     }
-
-    /// the SCRATCH register.
-    pub fn scratch() -> VolatilePtr<'static, u8, ReadWrite> {
-        unsafe {
-            VolatilePtr::new_restricted(
-                ReadWrite,
-                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x38).as_mut()),
-            )
-        }
+    mmio_reg! {
+        /// the SCRATCH register.
+        scratch, u8, ReadWrite, 0x38
     }
-
-    /// the DLL (divisor latch lsb) register.
-    /// this is only accessible if the divisor latch access bit is set.
-    pub fn divisor_latch_lsb() -> VolatilePtr<'static, u8, ReadWrite> {
-        unsafe {
-            VolatilePtr::new_restricted(
-                ReadWrite,
-                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x0).as_mut()),
-            )
-        }
+    mmio_reg! {
+        /// the DLL (divisor latch lsb) register.
+        /// this is only accessible if the divisor latch access bit is set.
+        divisor_latch_lsb, u8, ReadWrite, 0x0
     }
-
-    /// the DLL (divisor latch msb) register.
-    /// this is only accessible if the divisor latch access bit is set.
-    pub fn divisor_latch_msb() -> VolatilePtr<'static, u8, ReadWrite> {
-        unsafe {
-            VolatilePtr::new_restricted(
-                ReadWrite,
-                NonNull::new_unchecked((Self::BASE_VIRT_ADDR + 0x8).as_mut()),
-            )
-        }
+    mmio_reg! {
+        /// the DLM (divisor latch msb) register.
+        /// this is only accessible if the divisor latch access bit is set.
+        divisor_latch_msb, u8, ReadWrite, 0x8
     }
 }
 
