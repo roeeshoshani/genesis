@@ -242,6 +242,7 @@ impl PciScanner {
             }
         }
     }
+
     pub fn scan_dev(&mut self, dev: PciDev) {
         let function0 = dev.function0();
 
@@ -260,6 +261,7 @@ impl PciScanner {
             }
         }
     }
+
     pub fn scan_function(&mut self, function: PciFunction) {
         println!("found function: {:x}", function.addr);
     }
