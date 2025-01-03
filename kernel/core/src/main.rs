@@ -3,38 +3,89 @@
 #![feature(asm_experimental_arch)]
 
 use bitpiece::*;
-use core::{arch::global_asm, panic::PanicInfo};
+use core::{arch::global_asm, panic::PanicInfo, ptr::NonNull};
 use hal::{
     insn::{MipsAbsJump, MipsInsnReg, MipsMoveInsn, MipsPushReg},
-    mem::{VirtAddr, GENERAL_EXCEPTION_VECTOR_ADDR},
+    mem::{VirtAddr, GENERAL_EXCEPTION_VECTOR_ADDR, PCI_0_MEM},
+    mmio::gt64120::Gt64120Regs,
     sys::{
         Cp0Reg, Cp0RegCause, Cp0RegCompare, Cp0RegCount, Cp0RegStatus, CpuErrorLevel,
         CpuExceptionLevel, InterruptBitmap, MipsMaltaRevisionInfo, OperatingMode,
     },
 };
 use uart::{uart_init, uart_read_byte};
+use volatile::VolatilePtr;
 
 pub mod uart;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    disable_interrupts();
+    interrupts_disable();
     println!("{}", info);
     loop {}
 }
 
-pub fn set_interrupts_enabled(enabled: bool) {
+pub fn interrupts_set_enabled(enabled: bool) {
     let mut status = Cp0RegStatus::read();
     status.set_are_interrupts_enabled(enabled);
     Cp0RegStatus::write(status);
 }
 
-pub fn disable_interrupts() {
-    set_interrupts_enabled(false);
+#[derive(Clone)]
+pub struct InterruptsPrevState {
+    pub were_enabled: bool,
 }
 
-pub fn enable_interrupts() {
-    set_interrupts_enabled(true);
+/// disables interrupts and returns the previous state of the interrupts.
+pub fn interrupts_save() -> InterruptsPrevState {
+    let mut status = Cp0RegStatus::read();
+
+    let prev_state = InterruptsPrevState {
+        were_enabled: status.are_interrupts_enabled(),
+    };
+
+    status.set_are_interrupts_enabled(false);
+    Cp0RegStatus::write(status);
+
+    prev_state
+}
+
+/// restores interrupts to their previous state
+pub fn interrupts_restore(prev_state: InterruptsPrevState) {
+    let mut status = Cp0RegStatus::read();
+    status.set_are_interrupts_enabled(prev_state.were_enabled);
+    Cp0RegStatus::write(status);
+}
+
+pub struct InterruptsDisabledGuard {
+    prev_state: InterruptsPrevState,
+}
+impl InterruptsDisabledGuard {
+    pub fn new() -> Self {
+        Self {
+            prev_state: interrupts_save(),
+        }
+    }
+}
+impl Drop for InterruptsDisabledGuard {
+    fn drop(&mut self) {
+        interrupts_restore(self.prev_state.clone());
+    }
+}
+
+pub fn interrupts_disable() {
+    interrupts_set_enabled(false);
+}
+
+pub fn interrupts_enable() {
+    interrupts_set_enabled(true);
+}
+
+macro_rules! with_interrupts_disabled {
+    ($block: block) => {{
+        let _ = InterruptsDisabledGuard::new();
+        $block
+    }};
 }
 
 #[repr(C)]
@@ -181,7 +232,7 @@ extern "C" fn general_exception_handler() {
         );
     }
 
-    println!("{:?}", pending);
+    println!("pending hw: {:b}", pending.hardware().0);
 }
 
 fn write_general_exception_vector_sub() {
@@ -257,16 +308,88 @@ fn exceptions_init() {
     exceptions_init_cp0_cause();
 }
 
+#[bitpiece(32)]
+struct PciConfigRegAddrEncoded {
+    pub zero: B2,
+    pub register_number: B6,
+    pub function: B3,
+    pub device: B5,
+    pub bus: B8,
+    pub reserved: B7,
+    pub enable: bool,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PciConfigRegAddr {
+    pub bus: u8,
+    pub device: u8,
+    pub function: u8,
+    pub register_number: u8,
+}
+impl PciConfigRegAddr {
+    fn encode(self) -> PciConfigRegAddrEncoded {
+        // verify the field values
+        assert_eq!(self.device >> 5, 0);
+        assert_eq!(self.function >> 3, 0);
+        assert_eq!(self.register_number >> 6, 0);
+
+        PciConfigRegAddrEncoded::from_fields(PciConfigRegAddrEncodedFields {
+            zero: BitPiece::zeroes(),
+            register_number: B6(self.register_number),
+            function: B3(self.function),
+            device: B5(self.device),
+            bus: B8(self.bus),
+            reserved: BitPiece::zeroes(),
+            enable: true,
+        })
+    }
+}
+
+pub struct PciConfigReg {
+    encoded_addr: PciConfigRegAddrEncoded,
+}
+impl PciConfigReg {
+    pub fn new(addr: PciConfigRegAddr) -> Self {
+        Self {
+            encoded_addr: addr.encode(),
+        }
+    }
+    pub fn read(&self) -> u32 {
+        // do this with interrupts disabled to prevent an interrupt handler from overwriting the pci config register while
+        // we are operating
+        with_interrupts_disabled!({
+            Gt64120Regs::pci_0_config_addr().write(self.encoded_addr.to_bits());
+            Gt64120Regs::pci_0_config_data().read()
+        })
+    }
+    pub fn write(&self, value: u32) {
+        // do this with interrupts disabled to prevent an interrupt handler from overwriting the pci config register while
+        // we are operating
+        with_interrupts_disabled!({
+            Gt64120Regs::pci_0_config_addr().write(self.encoded_addr.to_bits());
+            Gt64120Regs::pci_0_config_data().write(value);
+        })
+    }
+}
+
 #[no_mangle]
 extern "C" fn _start() {
     uart_init();
     exceptions_init();
-    println!("{:?}", MipsMaltaRevisionInfo::read().to_fields());
+
+    let reg = PciConfigReg::new(PciConfigRegAddr {
+        bus: 0,
+        device: 0,
+        function: 0,
+        register_number: 0,
+    });
+    println!("{:x}", reg.read());
+
     loop {
         let byte = uart_read_byte();
         println!("received byte: {}", byte);
         if byte == b'Z' {
-            enable_interrupts();
+            interrupts_enable();
         }
     }
 }
