@@ -1,5 +1,3 @@
-use core::ptr::NonNull;
-
 use crate::{
     mem::PhysAddr,
     mmio_regs::{mmio_base, mmio_reg},
