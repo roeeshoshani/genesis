@@ -246,7 +246,7 @@ fn write_general_exception_vector_sub() {
     // so we know that it can't be present in the icache at this point.
 }
 
-fn exceptions_init_cp0_status() {
+fn init_cp0_status() {
     let mut status = Cp0RegStatus::read();
 
     // allow access to all coprocessors
@@ -281,7 +281,7 @@ fn exceptions_init_cp0_status() {
     Cp0RegStatus::write(status);
 }
 
-fn exceptions_init_cp0_cause() {
+fn init_cp0_cause() {
     let mut cause = Cp0RegCause::read();
 
     // don't use the special interrupt vector, use the normal one
@@ -292,6 +292,6 @@ fn exceptions_init_cp0_cause() {
 
 pub fn interrupts_init() {
     write_general_exception_vector_sub();
-    exceptions_init_cp0_status();
-    exceptions_init_cp0_cause();
+    init_cp0_status();
+    init_cp0_cause();
 }
