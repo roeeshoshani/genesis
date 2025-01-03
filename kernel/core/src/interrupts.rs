@@ -69,9 +69,9 @@ pub fn interrupts_enable() {
 }
 
 macro_rules! with_interrupts_disabled {
-    ($block: block) => {{
+    {$($t:tt)*} => {{
         let _ = $crate::interrupts::InterruptsDisabledGuard::new();
-        $block
+        $($t)*
     }};
 }
 pub(crate) use with_interrupts_disabled;
