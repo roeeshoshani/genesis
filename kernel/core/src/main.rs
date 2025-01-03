@@ -246,11 +246,6 @@ impl PciScanner {
     pub fn scan_dev(&mut self, dev: PciDev) {
         let function0 = dev.function0();
 
-        if !function0.exists() {
-            // device does not exist.
-            return;
-        }
-
         self.scan_function(function0);
 
         if function0.header_type().is_multi_function() {
