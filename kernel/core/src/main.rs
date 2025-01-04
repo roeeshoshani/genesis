@@ -3,8 +3,8 @@
 #![feature(asm_experimental_arch)]
 
 use bitpiece::*;
-use core::{panic::PanicInfo, ptr::NonNull};
-use hal::{mem::PhysAddr, mmio::gt64120::Gt64120Regs};
+use core::panic::PanicInfo;
+use hal::mmio::gt64120::Gt64120Regs;
 use interrupts::{
     interrupts_disable, interrupts_enable, interrupts_init, with_interrupts_disabled,
 };
@@ -15,6 +15,9 @@ use utils::max_val_of_bit_len;
 pub mod interrupts;
 pub mod uart;
 pub mod utils;
+
+const PCI_MAX_DEV: u8 = max_val_of_bit_len!(5);
+const PCI_MAX_FUNCTION: u8 = max_val_of_bit_len!(3);
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -34,10 +37,6 @@ pub struct PciConfigAddr {
     pub reserved: B7,
     pub enabled: bool,
 }
-
-const PCI_MAX_DEV: u8 = max_val_of_bit_len!(5);
-const PCI_MAX_FUNCTION: u8 = max_val_of_bit_len!(3);
-const PCI_MAX_REGISTER: u8 = max_val_of_bit_len!(6);
 
 pub fn pci_config_read(addr: PciConfigAddr) -> u32 {
     // do this with interrupts disabled to prevent an interrupt handler from overwriting the pci config register while
@@ -68,10 +67,8 @@ impl PciBus {
         Self { addr }
     }
     pub fn dev(self, dev_num: u8) -> Option<PciDev> {
-        assert!(dev_num <= PCI_MAX_DEV);
-
         let mut dev_addr = self.addr;
-        dev_addr.set_dev_num(B5(dev_num));
+        dev_addr.set_dev_num(B5::new(dev_num).unwrap());
         let dev = PciDev { addr: dev_addr };
 
         if dev.exists() {
@@ -91,10 +88,8 @@ pub struct PciDev {
 }
 impl PciDev {
     pub fn function(self, function_num: u8) -> Option<PciFunction> {
-        assert!(function_num <= PCI_MAX_FUNCTION);
-
         let mut function_addr = self.addr;
-        function_addr.set_function_num(B3(function_num));
+        function_addr.set_function_num(B3::new(function_num).unwrap());
 
         let function = PciFunction {
             addr: function_addr,
@@ -121,7 +116,7 @@ impl PciDev {
         self.addr.bus_num()
     }
     pub fn dev_num(&self) -> u8 {
-        self.addr.dev_num().0
+        self.addr.dev_num().get()
     }
 }
 
@@ -144,10 +139,8 @@ pub struct PciFunction {
 }
 impl PciFunction {
     pub fn config_reg(self, reg_num: u8) -> PciConfigReg {
-        assert!(reg_num <= PCI_MAX_REGISTER);
-
         let mut reg_addr = self.addr;
-        reg_addr.set_reg_num(B6(reg_num));
+        reg_addr.set_reg_num(B6::new(reg_num).unwrap());
 
         PciConfigReg { addr: reg_addr }
     }
@@ -187,10 +180,10 @@ impl PciFunction {
         self.addr.bus_num()
     }
     pub fn dev_num(&self) -> u8 {
-        self.addr.dev_num().0
+        self.addr.dev_num().get()
     }
     pub fn function_num(&self) -> u8 {
-        self.addr.function_num().0
+        self.addr.function_num().get()
     }
 }
 
@@ -234,7 +227,7 @@ pub struct PciHeaderType {
 }
 impl PciHeaderType {
     pub fn kind(self) -> PciHeaderKind {
-        match self.raw_kind().0 {
+        match self.raw_kind().get() {
             0 => PciHeaderKind::General,
             1 => PciHeaderKind::PciToPciBridge,
             2 => PciHeaderKind::PciToCardBusBridge,
@@ -267,13 +260,13 @@ impl PciConfigReg {
         self.addr.bus_num()
     }
     pub fn dev_num(&self) -> u8 {
-        self.addr.dev_num().0
+        self.addr.dev_num().get()
     }
     pub fn function_num(&self) -> u8 {
-        self.addr.function_num().0
+        self.addr.function_num().get()
     }
     pub fn reg_num(&self) -> u8 {
-        self.addr.reg_num().0
+        self.addr.reg_num().get()
     }
 }
 

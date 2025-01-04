@@ -180,7 +180,7 @@ pub struct CacheAssociativity {
 }
 impl CacheAssociativity {
     pub fn value(self) -> usize {
-        self.raw_val().0 as usize + 1
+        self.raw_val().get() as usize + 1
     }
 }
 
@@ -192,7 +192,7 @@ pub struct CacheLineSize {
 }
 impl CacheLineSize {
     pub fn value(self) -> usize {
-        2 << self.raw_val().0
+        2 << self.raw_val().get()
     }
 }
 
@@ -204,7 +204,7 @@ pub struct CacheSetsPerWay {
 }
 impl CacheSetsPerWay {
     pub fn value(self) -> usize {
-        64 << self.raw_val().0
+        64 << self.raw_val().get()
     }
 }
 
@@ -245,7 +245,7 @@ pub struct CacheParams {
 impl CacheParams {
     /// determines whether this cache is present.
     pub fn is_cache_present(&self) -> bool {
-        self.line_size().raw_val().0 != 0
+        self.line_size().raw_val().get() != 0
     }
     /// the total amount of cache lines in the cache.
     pub fn total_lines_amount(&self) -> usize {

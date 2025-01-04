@@ -212,7 +212,7 @@ extern "C" fn general_exception_handler() {
     let pending = cause.pending_interrupts();
 
     // we do not support software interrupts
-    let pending_software_interrupts = pending.software().0;
+    let pending_software_interrupts = pending.software().get();
     if pending_software_interrupts != 0 {
         panic!(
             "software interrupts are not supported, but got pending software interrupts: 0b{:b}",
@@ -220,7 +220,7 @@ extern "C" fn general_exception_handler() {
         );
     }
 
-    println!("pending hw: {:b}", pending.hardware().0);
+    println!("pending hw: {:b}", pending.hardware().get());
 }
 
 fn write_general_exception_vector_sub() {

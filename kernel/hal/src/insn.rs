@@ -7,7 +7,7 @@ pub const MIPS_INSN_SIZE: usize = size_of::<u32>();
 pub type MipsInsnEncodedReg = B5;
 
 fn encode_reg(index: u8) -> MipsInsnEncodedReg {
-    B5(index)
+    B5::new(index).unwrap()
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
