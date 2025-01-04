@@ -205,6 +205,15 @@ pub struct PciConfigReg3 {
     pub bist: u8,
 }
 
+#[bitpiece(32)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PciToPciBridgeConfigReg6 {
+    pub primary_bus_num: u8,
+    pub secondary_bus_num: u8,
+    pub subordinate_bus_num: u8,
+    pub secondary_latency_timer: u8,
+}
+
 #[bitpiece(8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PciHeaderType {
@@ -256,10 +265,32 @@ impl PciConfigReg {
     }
 }
 
-pub struct PciScanner {}
-impl PciScanner {
-    pub fn new() -> Self {
-        Self {}
+pub struct PciClassCode;
+impl PciClassCode {
+    pub const NO_CLASS_CODE: u8 = 0;
+    pub const MASS_STORAGE: u8 = 1;
+    pub const NETWORK: u8 = 2;
+    pub const DISPLAY: u8 = 3;
+    pub const MULTIMEDIA: u8 = 4;
+    pub const MEMORY_CONTROLLER: u8 = 5;
+    pub const BRIDGE: u8 = 6;
+}
+
+pub struct PciBridgeSubclass;
+impl PciBridgeSubclass {
+    pub const HOST_PCI_BRIDGE: u8 = 0;
+    pub const PCI_ISA_BRIDGE: u8 = 1;
+    pub const PCI_EISA_BRIDGE: u8 = 2;
+    pub const PCI_MICRO_CHANNEL_BRIDGE: u8 = 3;
+    pub const PCI_PCI_BRIDGE: u8 = 4;
+}
+
+pub struct PciScanner<F: FnMut(PciFunction)> {
+    callback: F,
+}
+impl<F: FnMut(PciFunction)> PciScanner<F> {
+    pub fn new(callback: F) -> Self {
+        Self { callback }
     }
 
     pub fn scan(&mut self) {
@@ -289,6 +320,22 @@ impl PciScanner {
     }
 
     pub fn scan_function(&mut self, function: PciFunction) {
-        println!("{:x?}", function.read_config_reg0().to_fields());
+        (self.callback)(function);
+
+        if function.class_code() == PciClassCode::BRIDGE
+            && function.subclass() == PciBridgeSubclass::PCI_PCI_BRIDGE
+        {
+            // verify that the structure of the header is that of a pci to pci bridge
+            assert_eq!(function.header_type().kind(), PciHeaderKind::PciToPciBridge);
+
+            // read the register which contains information about the downstream bus of the bridge
+            let reg = PciToPciBridgeConfigReg6::from_bits(function.config_reg(6).read());
+
+            // sanity - verify that the primary bus number matches the one we expect
+            assert_eq!(reg.primary_bus_num(), function.bus_num());
+
+            // scan the secondary bus
+            self.scan_bus(PciBus::new(reg.secondary_bus_num()));
+        }
     }
 }

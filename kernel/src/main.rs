@@ -90,6 +90,9 @@ fn run() -> Result<()> {
         // provide the final kernel file as the firmware for the emulator
         "-bios",
         FINAL_KERNEL_FILE_PATH,
+        // use 256 megabytes of ram
+        "-m",
+        "256M",
         // gdb stub on tcp port 1234
         "-s",
     )?;

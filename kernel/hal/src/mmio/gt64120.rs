@@ -3,6 +3,8 @@ use crate::{
     mmio_regs::{mmio_base, mmio_reg},
 };
 
+use bitpiece::*;
+
 /// a struct representing the GT64120 hardware registers, providing access to them.
 pub struct Gt64120Regs;
 impl Gt64120Regs {
@@ -195,16 +197,16 @@ impl Gt64120Regs {
         sdram_addr_decode, u32, ReadWrite, 0x47c
     }
     mmio_reg! {
-        sdram_bank0_params, u32, ReadWrite, 0x44c
+        sdram_bank0_params, SdramBankParams, ReadWrite, 0x44c
     }
     mmio_reg! {
-        sdram_bank1_params, u32, ReadWrite, 0x450
+        sdram_bank1_params, SdramBankParams, ReadWrite, 0x450
     }
     mmio_reg! {
-        sdram_bank2_params, u32, ReadWrite, 0x454
+        sdram_bank2_params, SdramBankParams, ReadWrite, 0x454
     }
     mmio_reg! {
-        sdram_bank3_params, u32, ReadWrite, 0x458
+        sdram_bank3_params, SdramBankParams, ReadWrite, 0x458
     }
     mmio_reg! {
         device_bank0_params, u32, ReadWrite, 0x45c
@@ -281,4 +283,23 @@ impl Gt64120Regs {
     mmio_reg! {
         pci_0_interrupt_select_cause, u32, ReadWrite, 0xc74
     }
+}
+
+#[bitpiece(32)]
+pub struct SdramBankParams {
+    pub cas_latency: B2,
+    pub is_flow_through_enabled: bool,
+    pub sras_precharge_time: B1,
+    pub reserved4: B1,
+    pub interleave: B1,
+    pub is_64_bit: bool,
+    pub location: B1,
+    pub supports_ecc: bool,
+    pub bypass: bool,
+    pub sras_to_scas_delay: B1,
+    pub size0: B1,
+    pub reserved12: B1,
+    pub burst_len: B1,
+    pub size1: B1,
+    pub reserved: B17,
 }

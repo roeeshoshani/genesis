@@ -2,10 +2,12 @@
 #![no_main]
 #![feature(asm_experimental_arch)]
 
-use core::panic::PanicInfo;
+use core::{panic::PanicInfo, ptr::NonNull};
+use hal::mem::{PhysAddr, PCI_0_MEM};
 use interrupts::{interrupts_disable, interrupts_enable, interrupts_init};
 use pci::PciScanner;
 use uart::{uart_init, uart_read_byte};
+use volatile::VolatilePtr;
 
 pub mod interrupts;
 pub mod pci;
@@ -24,7 +26,7 @@ extern "C" fn _start() {
     uart_init();
     interrupts_init();
 
-    let mut scanner = PciScanner::new();
+    let mut scanner = PciScanner::new(|f| println!("{:?}", f));
     scanner.scan();
 
     loop {
