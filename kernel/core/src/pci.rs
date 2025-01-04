@@ -7,14 +7,19 @@ use crate::{interrupts::with_interrupts_disabled, println, utils::max_val_of_bit
 const PCI_MAX_DEV: u8 = max_val_of_bit_len!(5);
 const PCI_MAX_FUNCTION: u8 = max_val_of_bit_len!(3);
 
+pub type PciRegNum = B6;
+pub type PciFunctionNum = B3;
+pub type PciDevNum = B5;
+pub type PciBusNum = u8;
+
 #[bitpiece(32)]
 #[derive(Debug)]
 pub struct PciConfigAddr {
     pub zero: B2,
-    pub reg_num: B6,
-    pub function_num: B3,
-    pub dev_num: B5,
-    pub bus_num: u8,
+    pub reg_num: PciRegNum,
+    pub function_num: PciFunctionNum,
+    pub dev_num: PciDevNum,
+    pub bus_num: PciBusNum,
     pub reserved: B7,
     pub enabled: bool,
 }
@@ -49,7 +54,7 @@ impl PciBus {
     }
     pub fn dev(self, dev_num: u8) -> Option<PciDev> {
         let mut dev_addr = self.addr;
-        dev_addr.set_dev_num(B5::new(dev_num).unwrap());
+        dev_addr.set_dev_num(PciDevNum::new(dev_num).unwrap());
         let dev = PciDev { addr: dev_addr };
 
         if dev.exists() {
@@ -70,7 +75,7 @@ pub struct PciDev {
 impl PciDev {
     pub fn function(self, function_num: u8) -> Option<PciFunction> {
         let mut function_addr = self.addr;
-        function_addr.set_function_num(B3::new(function_num).unwrap());
+        function_addr.set_function_num(PciFunctionNum::new(function_num).unwrap());
 
         let function = PciFunction {
             addr: function_addr,
@@ -121,7 +126,7 @@ pub struct PciFunction {
 impl PciFunction {
     pub fn config_reg(self, reg_num: u8) -> PciConfigReg {
         let mut reg_addr = self.addr;
-        reg_addr.set_reg_num(B6::new(reg_num).unwrap());
+        reg_addr.set_reg_num(PciRegNum::new(reg_num).unwrap());
 
         PciConfigReg { addr: reg_addr }
     }
