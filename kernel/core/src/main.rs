@@ -23,44 +23,55 @@ fn panic(info: &PanicInfo) -> ! {
     loop {}
 }
 
+#[bitpiece(32)]
+pub struct PciConfigAddr {
+    pub zero: B2,
+    pub reg_num: B6,
+    pub function_num: B3,
+    pub dev_num: B5,
+    pub bus_num: u8,
+    pub reserved: B7,
+    pub enabled: bool,
+}
+
 const PCI_MAX_DEV: u8 = max_val_of_bit_len!(5);
 const PCI_MAX_FUNCTION: u8 = max_val_of_bit_len!(3);
 const PCI_MAX_REGISTER: u8 = max_val_of_bit_len!(6);
 
-pub fn pci_config_read(addr: u32) -> u32 {
+pub fn pci_config_read(addr: PciConfigAddr) -> u32 {
     // do this with interrupts disabled to prevent an interrupt handler from overwriting the pci config register while
     // we are operating
     with_interrupts_disabled! {
-        Gt64120Regs::pci_0_config_addr().write(addr);
+        Gt64120Regs::pci_0_config_addr().write(addr.to_bits());
         Gt64120Regs::pci_0_config_data().read()
     }
 }
-pub fn pci_config_write(addr: u32, value: u32) {
+pub fn pci_config_write(addr: PciConfigAddr, value: u32) {
     // do this with interrupts disabled to prevent an interrupt handler from overwriting the pci config register while
     // we are operating
     with_interrupts_disabled! {
-        Gt64120Regs::pci_0_config_addr().write(addr);
+        Gt64120Regs::pci_0_config_addr().write(addr.to_bits());
         Gt64120Regs::pci_0_config_data().write(value);
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct PciBus {
-    addr: u32,
+    addr: PciConfigAddr,
 }
 impl PciBus {
     pub fn new(bus_num: u8) -> Self {
-        Self {
-            // encode the bus number and add the enable bit
-            addr: ((bus_num as u32) << 16) | (1u32 << 31),
-        }
+        let mut addr = PciConfigAddr::zeroes();
+        addr.set_enabled(true);
+        addr.set_bus_num(bus_num);
+        Self { addr }
     }
     pub fn dev(self, dev_num: u8) -> Option<PciDev> {
         assert!(dev_num <= PCI_MAX_DEV);
 
-        let dev = PciDev {
-            addr: self.addr | ((dev_num as u32) << 11),
-        };
+        let mut dev_addr = self.addr;
+        dev_addr.set_dev_num(B5(dev_num));
+        let dev = PciDev { addr: dev_addr };
 
         if dev.exists() {
             Some(dev)
@@ -72,14 +83,17 @@ impl PciBus {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct PciDev {
-    addr: u32,
+    addr: PciConfigAddr,
 }
 impl PciDev {
     pub fn function(self, function_num: u8) -> Option<PciFunction> {
         assert!(function_num <= PCI_MAX_FUNCTION);
 
+        let mut function_addr = self.addr;
+        function_addr.set_function_num(B3(function_num));
+
         let function = PciFunction {
-            addr: self.addr | ((function_num as u32) << 8),
+            addr: function_addr,
         };
 
         if function.exists() {
@@ -115,14 +129,16 @@ macro_rules! pci_function_define_bitfield_reg {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct PciFunction {
-    addr: u32,
+    addr: PciConfigAddr,
 }
 impl PciFunction {
     pub fn config_reg(self, reg_num: u8) -> PciConfigReg {
         assert!(reg_num <= PCI_MAX_REGISTER);
-        PciConfigReg {
-            addr: self.addr | ((reg_num as u32) << 2),
-        }
+
+        let mut reg_addr = self.addr;
+        reg_addr.set_reg_num(B6(reg_num));
+
+        PciConfigReg { addr: reg_addr }
     }
 
     // define helper functions for all registers that have special bitfields in them
@@ -214,7 +230,7 @@ pub enum PciHeaderKind {
 }
 
 pub struct PciConfigReg {
-    addr: u32,
+    addr: PciConfigAddr,
 }
 impl PciConfigReg {
     pub fn read(self) -> u32 {
