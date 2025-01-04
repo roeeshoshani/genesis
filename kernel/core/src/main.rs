@@ -24,6 +24,7 @@ fn panic(info: &PanicInfo) -> ! {
 }
 
 #[bitpiece(32)]
+#[derive(Debug)]
 pub struct PciConfigAddr {
     pub zero: B2,
     pub reg_num: B6,
@@ -79,6 +80,9 @@ impl PciBus {
             None
         }
     }
+    pub fn bus_num(&self) -> u8 {
+        self.addr.bus_num()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -111,6 +115,13 @@ impl PciDev {
     /// returns the first function of this device. all devices must have this function.
     pub fn function0(self) -> PciFunction {
         self.function(0).unwrap()
+    }
+
+    pub fn bus_num(&self) -> u8 {
+        self.addr.bus_num()
+    }
+    pub fn dev_num(&self) -> u8 {
+        self.addr.dev_num().0
     }
 }
 
@@ -171,6 +182,16 @@ impl PciFunction {
     pub fn header_type(self) -> PciHeaderType {
         self.read_config_reg3().header_type()
     }
+
+    pub fn bus_num(&self) -> u8 {
+        self.addr.bus_num()
+    }
+    pub fn dev_num(&self) -> u8 {
+        self.addr.dev_num().0
+    }
+    pub fn function_num(&self) -> u8 {
+        self.addr.function_num().0
+    }
 }
 
 #[bitpiece(32)]
@@ -222,6 +243,7 @@ impl PciHeaderType {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum PciHeaderKind {
     General = 0,
     PciToPciBridge = 1,
@@ -229,6 +251,7 @@ pub enum PciHeaderKind {
     Unknown,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct PciConfigReg {
     addr: PciConfigAddr,
 }
@@ -238,6 +261,19 @@ impl PciConfigReg {
     }
     pub fn write(self, value: u32) {
         pci_config_write(self.addr, value)
+    }
+
+    pub fn bus_num(&self) -> u8 {
+        self.addr.bus_num()
+    }
+    pub fn dev_num(&self) -> u8 {
+        self.addr.dev_num().0
+    }
+    pub fn function_num(&self) -> u8 {
+        self.addr.function_num().0
+    }
+    pub fn reg_num(&self) -> u8 {
+        self.addr.reg_num().0
     }
 }
 
@@ -274,7 +310,7 @@ impl PciScanner {
     }
 
     pub fn scan_function(&mut self, function: PciFunction) {
-        println!("found function: {:x}", function.addr);
+        println!("found function: {:?}", function.addr.to_fields());
     }
 }
 
