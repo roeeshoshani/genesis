@@ -1,6 +1,8 @@
 # genesis
 a firmware implementation for mips.
 
+everyone is writing a kernel for x86, it is so fucking boring, so i decided to write a more esoteric one for mips.
+
 ## goals
 the final goal of this project is to implement a network switch, which switches packets between its
 different interfaces.
