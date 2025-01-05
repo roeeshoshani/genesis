@@ -43,7 +43,7 @@ the core is position independent and is relocated by the loader to run at the ad
 
 it is reponsible for the actual "kernel" part of the project.
 
-### packer
+#### packer
 the packer is reponsible for creating the final firmware image from the different parts.
 
 it is implemented as an `xtask` project in the root of the `kernel` directory.
