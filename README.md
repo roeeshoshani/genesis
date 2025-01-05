@@ -63,10 +63,6 @@ the project is in a very early state and currently can't do much, but the ground
 functional kernel was laid.
 
 ## final note
-feel free to follow along the development of this project.
-
-also, feel free to ask me questions, i will be happy to help and i'll do my best to answer them.
-
-if you want to contribute, create a PR, i could use some help...
+feel free to follow along the development of this project, ask questions, and contribute by creating a PR.
 
 cheers
