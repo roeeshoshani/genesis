@@ -1,11 +1,14 @@
+use core::marker::PhantomData;
+
+use arrayvec::ArrayVec;
 use bitpiece::*;
 use hal::mmio::gt64120::Gt64120Regs;
 use paste::paste;
 
 use crate::{interrupts::with_interrupts_disabled, println, utils::max_val_of_bit_len};
 
-const PCI_MAX_DEV: u8 = max_val_of_bit_len!(5);
-const PCI_MAX_FUNCTION: u8 = max_val_of_bit_len!(3);
+/// the maximum amount of BARs that a single function may have.
+const PCI_MAX_BARS: usize = 6;
 
 pub type PciRegNum = B6;
 pub type PciFunctionNum = B3;
@@ -120,10 +123,63 @@ macro_rules! pci_function_define_bitfield_reg {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct PciId {
+    pub vendor_id: u16,
+    pub device_id: u16,
+}
+impl PciId {
+    pub const PIIX4_CORE: Self = Self {
+        vendor_id: 0x8086,
+        device_id: 0x7110,
+    };
+    pub const PIIX4_IDE_CONTROLLER: Self = Self {
+        vendor_id: 0x8086,
+        device_id: 0x7111,
+    };
+    pub const PIIX4_USB_CONTROLLER: Self = Self {
+        vendor_id: 0x8086,
+        device_id: 0x7112,
+    };
+    pub const PIIX4_POWER_MANAGEMENT: Self = Self {
+        vendor_id: 0x8086,
+        device_id: 0x7113,
+    };
+    pub const GT64120: Self = Self {
+        vendor_id: 0x11ab,
+        device_id: 0x4620,
+    };
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct PciFunction {
     addr: PciConfigAddr,
 }
 impl PciFunction {
+    pub fn id(self) -> PciId {
+        PciId {
+            vendor_id: self.vendor_id(),
+            device_id: self.device_id(),
+        }
+    }
+
+    pub fn bars(self) -> ArrayVec<PciBarReg, PCI_MAX_BARS> {
+        // first decide which range of registers contains the BAR registers
+        let bar_regs_range = match self.header_type().kind() {
+            PciHeaderKind::General => 4..10,
+            PciHeaderKind::PciToPciBridge => 4..6,
+            PciHeaderKind::PciToCardBusBridge | PciHeaderKind::Unknown => {
+                // no BARs
+                return ArrayVec::new();
+            }
+        };
+
+        bar_regs_range
+            .map(|reg_num| PciBarReg {
+                reg: PciConfigRegTyped::new(self.config_reg(reg_num)),
+            })
+            .collect()
+    }
+
     pub fn config_reg(self, reg_num: u8) -> PciConfigReg {
         let mut reg_addr = self.addr;
         reg_addr.set_reg_num(PciRegNum::new(reg_num).unwrap());
@@ -131,11 +187,18 @@ impl PciFunction {
         PciConfigReg { addr: reg_addr }
     }
 
-    // define helper functions for all registers that have special bitfields in them
-    pci_function_define_bitfield_reg!(0);
-    pci_function_define_bitfield_reg!(1);
-    pci_function_define_bitfield_reg!(2);
-    pci_function_define_bitfield_reg!(3);
+    pub fn config_reg0(self) -> PciConfigRegTyped<PciConfigReg0> {
+        PciConfigRegTyped::new(self.config_reg(0))
+    }
+    pub fn config_reg1(self) -> PciConfigRegTyped<PciConfigReg1> {
+        PciConfigRegTyped::new(self.config_reg(1))
+    }
+    pub fn config_reg2(self) -> PciConfigRegTyped<PciConfigReg2> {
+        PciConfigRegTyped::new(self.config_reg(2))
+    }
+    pub fn config_reg3(self) -> PciConfigRegTyped<PciConfigReg3> {
+        PciConfigRegTyped::new(self.config_reg(3))
+    }
 
     /// checks if this pci function even exists.
     fn exists(self) -> bool {
@@ -143,23 +206,23 @@ impl PciFunction {
     }
 
     pub fn vendor_id(self) -> u16 {
-        self.read_config_reg0().vendor_id()
+        self.config_reg0().read().vendor_id()
     }
 
     pub fn device_id(self) -> u16 {
-        self.read_config_reg0().device_id()
+        self.config_reg0().read().device_id()
     }
 
     pub fn class_code(self) -> u8 {
-        self.read_config_reg2().class_code()
+        self.config_reg2().read().class_code()
     }
 
     pub fn subclass(self) -> u8 {
-        self.read_config_reg2().subclass()
+        self.config_reg2().read().subclass()
     }
 
     pub fn header_type(self) -> PciHeaderType {
-        self.read_config_reg3().header_type()
+        self.config_reg3().read().header_type()
     }
 
     pub fn bus_num(&self) -> u8 {
@@ -171,6 +234,69 @@ impl PciFunction {
     pub fn function_num(&self) -> u8 {
         self.addr.function_num().get()
     }
+}
+
+pub type PciMemBarReg = PciConfigRegTyped<PciMemBar>;
+pub type PciIoBarReg = PciConfigRegTyped<PciIoBar>;
+
+pub enum PciBarRegByKind {
+    Mem(PciMemBarReg),
+    Io(PciIoBarReg),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct PciBarReg {
+    reg: PciConfigRegTyped<PciBarRaw>,
+}
+impl PciBarReg {
+    pub fn kind(self) -> PciBarKind {
+        self.reg.read().kind()
+    }
+    pub fn by_kind(self) -> PciBarRegByKind {
+        match self.kind() {
+            PciBarKind::Mem => PciBarRegByKind::Mem(self.reg.cast()),
+            PciBarKind::Io => PciBarRegByKind::Io(self.reg.cast()),
+        }
+    }
+}
+
+#[bitpiece(32)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PciBarRaw {
+    pub kind: PciBarKind,
+    pub data: B31,
+}
+
+#[bitpiece(32)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PciIoBar {
+    pub kind: PciBarKind,
+    pub address: B31,
+}
+
+#[bitpiece(32)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PciMemBar {
+    pub kind: PciBarKind,
+    pub locatable: PciBarLocatable,
+    pub is_prefetchable: bool,
+    pub address: B28,
+}
+
+#[bitpiece(1)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum PciBarKind {
+    Mem = 0,
+    Io = 1,
+}
+
+#[bitpiece(2)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum PciBarLocatable {
+    Any32Bit = 0,
+    Below1Mb = 1,
+    Any64Bit = 2,
+    Reserved = 3,
 }
 
 #[bitpiece(32)]
@@ -265,6 +391,32 @@ impl PciConfigReg {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct PciConfigRegTyped<T> {
+    reg: PciConfigReg,
+    phantom: PhantomData<T>,
+}
+impl<T: BitPiece<Bits = u32>> PciConfigRegTyped<T> {
+    pub fn new(reg: PciConfigReg) -> Self {
+        Self {
+            reg,
+            phantom: PhantomData,
+        }
+    }
+    pub fn read(self) -> T {
+        T::from_bits(self.reg.read())
+    }
+    pub fn write(self, value: T) {
+        self.reg.write(value.to_bits());
+    }
+    pub fn reg(self) -> PciConfigReg {
+        self.reg
+    }
+    pub fn cast<O: BitPiece<Bits = u32>>(self) -> PciConfigRegTyped<O> {
+        PciConfigRegTyped::new(self.reg)
+    }
+}
+
 pub struct PciClassCode;
 impl PciClassCode {
     pub const NO_CLASS_CODE: u8 = 0;
@@ -285,33 +437,33 @@ impl PciBridgeSubclass {
     pub const PCI_PCI_BRIDGE: u8 = 4;
 }
 
-pub struct PciScanner<F: FnMut(PciFunction)> {
+struct PciScanner<F: FnMut(PciFunction)> {
     callback: F,
 }
 impl<F: FnMut(PciFunction)> PciScanner<F> {
-    pub fn new(callback: F) -> Self {
+    fn new(callback: F) -> Self {
         Self { callback }
     }
 
-    pub fn scan(&mut self) {
+    fn scan(&mut self) {
         self.scan_bus(PciBus::new(0));
     }
 
-    pub fn scan_bus(&mut self, bus: PciBus) {
-        for i in 0..PCI_MAX_DEV {
+    fn scan_bus(&mut self, bus: PciBus) {
+        for i in 0..PciDevNum::MAX.get() {
             if let Some(dev) = bus.dev(i) {
                 self.scan_dev(dev);
             }
         }
     }
 
-    pub fn scan_dev(&mut self, dev: PciDev) {
+    fn scan_dev(&mut self, dev: PciDev) {
         let function0 = dev.function0();
 
         self.scan_function(function0);
 
         if function0.header_type().is_multi_function() {
-            for i in 1..PCI_MAX_FUNCTION {
+            for i in 1..PciFunctionNum::MAX.get() {
                 if let Some(function) = dev.function(i) {
                     self.scan_function(function);
                 }
@@ -319,7 +471,7 @@ impl<F: FnMut(PciFunction)> PciScanner<F> {
         }
     }
 
-    pub fn scan_function(&mut self, function: PciFunction) {
+    fn scan_function(&mut self, function: PciFunction) {
         (self.callback)(function);
 
         if function.class_code() == PciClassCode::BRIDGE
@@ -338,4 +490,9 @@ impl<F: FnMut(PciFunction)> PciScanner<F> {
             self.scan_bus(PciBus::new(reg.secondary_bus_num()));
         }
     }
+}
+
+pub fn pci_scan<F: FnMut(PciFunction)>(callback: F) {
+    let mut scanner = PciScanner::new(callback);
+    scanner.scan();
 }
