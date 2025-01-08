@@ -32,7 +32,7 @@ checksum = "78bf622118dc14f84d6099182d0114c01b45c2a95cad8c929a9f0d10a5ec1e18"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.71",
 ]
 
 [[package]]
@@ -52,6 +52,7 @@ dependencies = [
  "paste",
  "spin",
  "static_assertions",
+ "thiserror-no-std",
  "volatile",
 ]
 
@@ -121,6 +122,17 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "syn"
+version = "1.0.109"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "syn"
 version = "2.0.71"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b146dcf730474b4bcd16c311627b31ede9ab149045db4d6088b3becaea046462"
@@ -128,6 +140,26 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "thiserror-impl-no-std"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58e6318948b519ba6dc2b442a6d0b904ebfb8d411a3ad3e07843615a72249758"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "thiserror-no-std"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3ad459d94dd517257cc96add8a43190ee620011bb6e6cdc82dafd97dfafafea"
+dependencies = [
+ "thiserror-impl-no-std",
 ]
 
 [[package]]

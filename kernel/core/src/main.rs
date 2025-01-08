@@ -7,6 +7,7 @@ use core::{panic::PanicInfo, sync::atomic::AtomicUsize};
 use hal::mem::{PhysAddr, PhysMemRegion, PCI_0_IO, PCI_0_MEM};
 use interrupts::{interrupts_disable, interrupts_enable, interrupts_init};
 use pci::{pci_scan, PciBarKind, PciConfigRegTyped, PciFunction, PciId, PciMemBar};
+use thiserror_no_std::Error;
 use uart::{uart_init, uart_read_byte};
 
 pub mod interrupts;
@@ -65,6 +66,7 @@ fn probe_pci_function(function: PciFunction) {
     }
 }
 
+/// a physical memory bump allocator, which allocates from the given physical memory region.
 pub struct PhysMemBumpAllocator {
     cur_addr: AtomicUsize,
     end_addr: PhysAddr,
@@ -76,17 +78,30 @@ impl PhysMemBumpAllocator {
             end_addr: region.end,
         }
     }
-    pub fn alloc(&self, size: usize) -> Option<PhysAddr> {
+    pub fn alloc(&self, size: usize) -> Result<PhysAddr, PhysMemBumpAllocatorError> {
         let allocated_addr = self
             .cur_addr
             .fetch_add(size, core::sync::atomic::Ordering::Relaxed);
         let end_addr = allocated_addr + size;
         if end_addr <= self.end_addr.0 {
-            Some(PhysAddr(allocated_addr))
+            Ok(PhysAddr(allocated_addr))
         } else {
-            None
+            Err(PhysMemBumpAllocatorError {
+                space_requested: size,
+                space_left: self.end_addr.0 - allocated_addr,
+            })
         }
     }
+}
+
+/// an error while trying to allocate from the physical memory bump allocator.
+#[derive(Debug, Error)]
+#[error(
+    "requested allocation of 0x{space_requested:x} bytes, but space left is only 0x{space_left:x}"
+)]
+pub struct PhysMemBumpAllocatorError {
+    pub space_requested: usize,
+    pub space_left: usize,
 }
 
 static PCI_IO_SPACE_ALLOCATOR: PhysMemBumpAllocator = PhysMemBumpAllocator::new(PCI_0_IO);
