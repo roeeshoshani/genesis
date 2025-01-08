@@ -3,9 +3,10 @@
 #![feature(asm_experimental_arch)]
 
 use bitpiece::*;
-use core::panic::PanicInfo;
+use core::{panic::PanicInfo, sync::atomic::AtomicUsize};
+use hal::mem::{PhysAddr, PhysMemRegion, PCI_0_IO, PCI_0_MEM};
 use interrupts::{interrupts_disable, interrupts_enable, interrupts_init};
-use pci::{pci_scan, PciBarRegByKind, PciConfigRegTyped, PciFunction, PciId, PciMemBar};
+use pci::{pci_scan, PciBarKind, PciConfigRegTyped, PciFunction, PciId, PciMemBar};
 use uart::{uart_init, uart_read_byte};
 
 pub mod interrupts;
@@ -64,22 +65,51 @@ fn probe_pci_function(function: PciFunction) {
     }
 }
 
+pub struct PhysMemBumpAllocator {
+    cur_addr: AtomicUsize,
+    end_addr: PhysAddr,
+}
+impl PhysMemBumpAllocator {
+    pub const fn new(region: PhysMemRegion) -> Self {
+        Self {
+            cur_addr: AtomicUsize::new(region.start.0),
+            end_addr: region.end,
+        }
+    }
+    pub fn alloc(&self, size: usize) -> Option<PhysAddr> {
+        let allocated_addr = self
+            .cur_addr
+            .fetch_add(size, core::sync::atomic::Ordering::Relaxed);
+        let end_addr = allocated_addr + size;
+        if end_addr <= self.end_addr.0 {
+            Some(PhysAddr(allocated_addr))
+        } else {
+            None
+        }
+    }
+}
+
+static PCI_IO_SPACE_ALLOCATOR: PhysMemBumpAllocator = PhysMemBumpAllocator::new(PCI_0_IO);
+static PCI_MEM_SPACE_ALLOCATOR: PhysMemBumpAllocator = PhysMemBumpAllocator::new(PCI_0_MEM);
+
 fn pci_function_map_bars(function: PciFunction) {
     for bar in function.bars() {
-        match bar.by_kind() {
-            PciBarRegByKind::Mem(mem_bar) => {
-                println!(
-                    "bar addr: {:x}, size: {:x?}",
-                    mem_bar.read().address().get(),
-                    mem_bar.size()
-                );
+        match bar.size() {
+            Some(size) => {
+                // allocate an address for the BAR and set its base address
+                let allocator = match bar.kind() {
+                    PciBarKind::Mem => &PCI_MEM_SPACE_ALLOCATOR,
+                    PciBarKind::Io => &PCI_IO_SPACE_ALLOCATOR,
+                };
+                let base_addr = allocator
+                    .alloc(size.get() as usize)
+                    .expect("failed to allocate address space for PCI BAR");
+                bar.set_address(base_addr.0 as u32);
             }
-            PciBarRegByKind::Io(io_bar) => {
-                println!(
-                    "bar addr: {:x}, size: {:x?}",
-                    io_bar.read().address().get(),
-                    io_bar.size()
-                );
+            None => {
+                // BAR is not implemented, make sure that its address is 0, so that future users
+                // will know that it is not implemented just by looking at its address.
+                bar.set_address(0);
             }
         }
     }

@@ -178,9 +178,7 @@ impl PciFunction {
         };
 
         bar_regs_range
-            .map(|reg_num| PciBarReg {
-                reg: PciConfigRegTyped::new(self.config_reg(reg_num)),
-            })
+            .map(|reg_num| PciBarReg::new(PciConfigRegTyped::new(self.config_reg(reg_num))))
             .collect()
     }
 
@@ -261,77 +259,70 @@ fn bar_decode_size_value_from_addr(bar_addr: u32) -> Option<NonZeroU32> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct PciMemBarReg(PciConfigRegTyped<PciMemBar>);
-impl PciMemBarReg {
-    /// returns the size of the BAR, or `None` if the bar is not implemented (has a size of 0).
-    pub fn size(self) -> Option<NonZeroU32> {
-        // the entire code below happens with interrupts disabled to prevent someone from messing with the
-        // BAR while we are using it.
-        with_interrupts_disabled! {
-            let orig = self.read();
-
-            // write a value of all 1 bits to the BAR. this will make the next read from the bar return its size.
-            self.write(PciMemBar::ones());
-            let size = bar_decode_size_value_from_addr(self.read().address().get());
-
-            self.write(orig);
-
-            size
-        }
-    }
-    pub fn read(self) -> PciMemBar {
-        self.0.read()
-    }
-    pub fn write(self, value: PciMemBar) {
-        self.0.write(value);
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct PciIoBarReg(PciConfigRegTyped<PciIoBar>);
-impl PciIoBarReg {
-    /// returns the size of the BAR, or `None` if the bar is not implemented (has a size of 0).
-    pub fn size(self) -> Option<NonZeroU32> {
-        // the entire code below happens with interrupts disabled to prevent someone from messing with the
-        // BAR while we are using it.
-        with_interrupts_disabled! {
-            let orig = self.read();
-
-            // write a value of all 1 bits to the BAR. this will make the next read from the bar return its size.
-            self.write(PciIoBar::ones());
-            let size = bar_decode_size_value_from_addr(self.read().address().get());
-
-            self.write(orig);
-
-            size
-        }
-    }
-    pub fn read(self) -> PciIoBar {
-        self.0.read()
-    }
-    pub fn write(self, value: PciIoBar) {
-        self.0.write(value);
-    }
-}
-
-pub enum PciBarRegByKind {
-    Mem(PciMemBarReg),
-    Io(PciIoBarReg),
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct PciBarReg {
     reg: PciConfigRegTyped<PciBarRaw>,
+    kind: PciBarKind,
 }
 impl PciBarReg {
-    pub fn kind(self) -> PciBarKind {
-        self.reg.read().kind()
-    }
-    pub fn by_kind(self) -> PciBarRegByKind {
-        match self.kind() {
-            PciBarKind::Mem => PciBarRegByKind::Mem(PciMemBarReg(self.reg.cast())),
-            PciBarKind::Io => PciBarRegByKind::Io(PciIoBarReg(self.reg.cast())),
+    pub fn new(reg: PciConfigRegTyped<PciBarRaw>) -> Self {
+        Self {
+            reg,
+            kind: reg.read().kind(),
         }
+    }
+    pub fn kind(self) -> PciBarKind {
+        self.kind
+    }
+    fn mem_bar_reg(self) -> PciConfigRegTyped<PciMemBar> {
+        self.reg.cast()
+    }
+    fn io_bar_reg(self) -> PciConfigRegTyped<PciIoBar> {
+        self.reg.cast()
+    }
+    pub fn address(self) -> u32 {
+        match self.kind {
+            PciBarKind::Mem => self.mem_bar_reg().read().address().get(),
+            PciBarKind::Io => self.io_bar_reg().read().address().get(),
+        }
+    }
+    pub fn set_address(self, new_address: u32) {
+        let bits = self.reg.read().to_bits();
+        let modified_bits = match self.kind {
+            PciBarKind::Mem => {
+                let mut modified_value = PciMemBar::from_bits(bits);
+                modified_value.set_address(BitPiece::from_bits(new_address));
+                modified_value.to_bits()
+            }
+            PciBarKind::Io => {
+                let mut modified_value = PciIoBar::from_bits(bits);
+                modified_value.set_address(BitPiece::from_bits(new_address));
+                modified_value.to_bits()
+            }
+        };
+        self.reg.write(PciBarRaw::from_bits(modified_bits));
+    }
+    /// returns the size of the BAR, or `None` if the bar is not implemented (has a size of 0).
+    pub fn size(self) -> Option<NonZeroU32> {
+        // TODO: what if someone modified the BAR while we are doing this?
+
+        // save the original value before modifying the BAR
+        let orig = self.reg.read();
+
+        // write a value of all 1 bits to the BAR. this will make the next read to the BAR's address return
+        // the BAR's size.
+        self.reg.write(BitPiece::ones());
+
+        // read the address which encodes the size
+        let addr = self.address();
+
+        // decode the size from the address
+        let size = bar_decode_size_value_from_addr(addr);
+
+        // write back the original value
+        self.reg.write(orig);
+
+        // return the size of the BAR
+        size
     }
 }
 
@@ -359,7 +350,7 @@ pub struct PciMemBar {
 }
 
 #[bitpiece(1)]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum PciBarKind {
     Mem = 0,
     Io = 1,
