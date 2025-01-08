@@ -265,20 +265,19 @@ pub struct PciMemBarReg(PciConfigRegTyped<PciMemBar>);
 impl PciMemBarReg {
     /// returns the size of the BAR, or `None` if the bar is not implemented (has a size of 0).
     pub fn size(self) -> Option<NonZeroU32> {
-        let orig = self.read();
+        // the entire code below happens with interrupts disabled to prevent someone from messing with the
+        // BAR while we are using it.
+        with_interrupts_disabled! {
+            let orig = self.read();
 
-        // write a value of all 1 bits to the BAR. this will make the next read from the bar return its size.
-        //
-        // this is done with interrupts disabled to prevent anyone from reading the bar after we wrote the
-        // all 1 bits value.
-        let size = with_interrupts_disabled! {
+            // write a value of all 1 bits to the BAR. this will make the next read from the bar return its size.
             self.write(PciMemBar::ones());
-            bar_decode_size_value_from_addr(self.read().address().get())
-        };
+            let size = bar_decode_size_value_from_addr(self.read().address().get());
 
-        self.write(orig);
+            self.write(orig);
 
-        size
+            size
+        }
     }
     pub fn read(self) -> PciMemBar {
         self.0.read()
@@ -293,20 +292,19 @@ pub struct PciIoBarReg(PciConfigRegTyped<PciIoBar>);
 impl PciIoBarReg {
     /// returns the size of the BAR, or `None` if the bar is not implemented (has a size of 0).
     pub fn size(self) -> Option<NonZeroU32> {
-        let orig = self.read();
+        // the entire code below happens with interrupts disabled to prevent someone from messing with the
+        // BAR while we are using it.
+        with_interrupts_disabled! {
+            let orig = self.read();
 
-        // write a value of all 1 bits to the BAR. this will make the next read from the bar return its size.
-        //
-        // this is done with interrupts disabled to prevent anyone from reading the bar after we wrote the
-        // all 1 bits value.
-        let size = with_interrupts_disabled! {
+            // write a value of all 1 bits to the BAR. this will make the next read from the bar return its size.
             self.write(PciIoBar::ones());
-            bar_decode_size_value_from_addr(self.read().address().get())
-        };
+            let size = bar_decode_size_value_from_addr(self.read().address().get());
 
-        self.write(orig);
+            self.write(orig);
 
-        size
+            size
+        }
     }
     pub fn read(self) -> PciIoBar {
         self.0.read()
