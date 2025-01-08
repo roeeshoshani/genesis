@@ -9,6 +9,7 @@ use interrupts::{interrupts_disable, interrupts_enable, interrupts_init};
 use pci::{pci_scan, PciBarKind, PciConfigRegTyped, PciFunction, PciId, PciMemBar};
 use thiserror_no_std::Error;
 use uart::{uart_init, uart_read_byte};
+use utils::HexDisplay;
 
 pub mod interrupts;
 pub mod pci;
@@ -87,8 +88,8 @@ impl PhysMemBumpAllocator {
             Ok(PhysAddr(allocated_addr))
         } else {
             Err(PhysMemBumpAllocatorError {
-                space_requested: size,
-                space_left: self.end_addr.0 - allocated_addr,
+                space_requested: HexDisplay(size),
+                space_left: HexDisplay(self.end_addr.0 - allocated_addr),
             })
         }
     }
@@ -100,8 +101,8 @@ impl PhysMemBumpAllocator {
     "requested allocation of 0x{space_requested:x} bytes, but space left is only 0x{space_left:x}"
 )]
 pub struct PhysMemBumpAllocatorError {
-    pub space_requested: usize,
-    pub space_left: usize,
+    pub space_requested: HexDisplay<usize>,
+    pub space_left: HexDisplay<usize>,
 }
 
 static PCI_IO_SPACE_ALLOCATOR: PhysMemBumpAllocator = PhysMemBumpAllocator::new(PCI_0_IO);
