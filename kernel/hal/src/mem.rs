@@ -273,14 +273,30 @@ pub const KERNEL_STACK: PhysMemRegion =
 /// the physical address of the memory mapped mips revision register.
 pub const MIPS_REVISION_REG_ADDR: PhysAddr = PhysAddr(0x1FC00010);
 
-/// the physical memory region which represents the memory mapped region which provides access to the PCI bus through the PCI_0 device.
+/// the physical memory region which represents the memory mapped region which provides access to the PCI memory
+/// space of the PCI bus through the PCI_0 device.
 ///
 /// the PCI_0 device is a PCI device which is part of the GT-64120A controller, and is controlled by the cpu.
 /// this device can thus be used by the cpu to access the PCI bus of the board.
 ///
-/// the memory region defined here uses the default addresses for this memory region, although the ranges can be configured using specific
-/// hardware registers. but, we never write to these registers, and we just use the default memory region addresses.
+/// the memory region defined here uses the default addresses for this memory region, although the ranges can be
+/// configured using specific hardware registers. but, we never write to these registers, and we just use the
+/// default memory region addresses.
 pub const PCI_0_MEM: PhysMemRegion = PhysMemRegion {
     start: PhysAddr(0x12000000),
     end: PhysAddr(0x14000000),
+};
+
+/// the physical memory region which represents the memory mapped region which provides access to the PCI IO
+/// space of the PCI bus through the PCI_0 device.
+///
+/// the PCI_0 device is a PCI device which is part of the GT-64120A controller, and is controlled by the cpu.
+/// this device can thus be used by the cpu to access the PCI bus of the board.
+///
+/// the memory region defined here uses the default addresses for this memory region, although the ranges can be
+/// configured using specific hardware registers. but, we never write to these registers, and we just use the
+/// default memory region addresses.
+pub const PCI_0_IO: PhysMemRegion = PhysMemRegion {
+    start: PhysAddr(0x10000000),
+    end: PhysAddr(0x12000000),
 };

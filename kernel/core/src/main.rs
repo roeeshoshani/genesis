@@ -5,7 +5,7 @@
 use bitpiece::*;
 use core::panic::PanicInfo;
 use interrupts::{interrupts_disable, interrupts_enable, interrupts_init};
-use pci::{pci_scan, PciBarRegByKind, PciConfigRegTyped, PciFunction, PciId};
+use pci::{pci_scan, PciBarRegByKind, PciConfigRegTyped, PciFunction, PciId, PciMemBar};
 use uart::{uart_init, uart_read_byte};
 
 pub mod interrupts;
@@ -68,10 +68,18 @@ fn pci_function_map_bars(function: PciFunction) {
     for bar in function.bars() {
         match bar.by_kind() {
             PciBarRegByKind::Mem(mem_bar) => {
-                println!("mem bar addr: {:x?}", mem_bar.read().to_fields());
+                println!(
+                    "bar addr: {:x}, size: {:x?}",
+                    mem_bar.read().address().get(),
+                    mem_bar.size()
+                );
             }
             PciBarRegByKind::Io(io_bar) => {
-                println!("io bar addr: {:x?}", io_bar.read().to_fields());
+                println!(
+                    "bar addr: {:x}, size: {:x?}",
+                    io_bar.read().address().get(),
+                    io_bar.size()
+                );
             }
         }
     }
