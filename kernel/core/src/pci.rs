@@ -646,9 +646,6 @@ impl<F: FnMut(PciFunction)> PciScanner<F> {
             // read the register which contains information about the downstream bus of the bridge
             let reg = PciToPciBridgeConfigReg6::from_bits(function.config_reg(6).read());
 
-            // sanity - verify that the primary bus number matches the one we expect
-            assert_eq!(reg.primary_bus_num(), function.bus_num());
-
             // scan the secondary bus
             self.scan_bus(PciBus::new(reg.secondary_bus_num()));
         }
