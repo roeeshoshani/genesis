@@ -301,10 +301,27 @@ pub struct PciBarReg {
 }
 impl PciBarReg {
     pub fn new(reg: PciConfigRegTyped<PciBarRaw>) -> Self {
-        Self {
+        let result = Self {
             reg,
             kind: reg.read().kind(),
+        };
+
+        // verify the fields of the BAR
+        match result.kind {
+            PciBarKind::Mem => match result.mem_bar_reg().read().locatable() {
+                PciBarLocatable::Any32Bit => {
+                    // ok
+                }
+                PciBarLocatable::Below1Mb => panic!("pci memory BARs below 1mb are not supported"),
+                PciBarLocatable::Any64Bit => panic!("64-bit pci memory BARs are not supported"),
+                PciBarLocatable::Reserved => panic!("invalid memory pci BAR locatable field value"),
+            },
+            PciBarKind::Io => {
+                // ok
+            }
         }
+
+        result
     }
     pub fn kind(self) -> PciBarKind {
         self.kind
