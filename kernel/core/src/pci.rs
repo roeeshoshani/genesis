@@ -434,7 +434,8 @@ pub struct PciBarRaw {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PciIoBar {
     pub kind: PciBarKind,
-    pub address: B31,
+    pub reserved: B1,
+    pub address: B30,
 }
 
 #[bitpiece(32)]
