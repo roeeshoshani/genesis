@@ -395,7 +395,7 @@ impl PciBarReg {
         //
         // to calculate the size of the BAR, we can bitwise not the returned value to get the original mask,
         // and then add 1 to it to get the size.
-        let size = !self.address_noshift() + 1;
+        let size = !self.address_noshift().wrapping_add(1);
 
         // write back the original value
         self.reg.write(orig);
