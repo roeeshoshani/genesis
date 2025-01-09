@@ -468,8 +468,52 @@ pub struct PciConfigReg0 {
 #[bitpiece(32)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PciConfigReg1 {
-    pub command: u16,
-    pub status: u16,
+    pub command: PciConfigRegCommand,
+    pub status: PciConfigRegStatus,
+}
+
+#[bitpiece(16)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PciConfigRegCommand {
+    pub io_enable: bool,
+    pub mem_enable: bool,
+    pub bus_master_enable: bool,
+    pub special_cycles_enable: bool,
+    pub mem_write_and_invalidate_enable: bool,
+    pub vga_palette_snoop_enable: bool,
+    pub parity_error_response_enable: bool,
+    pub reserved7: B1,
+    pub serr_enable: bool,
+    pub fast_back_to_back_enable: bool,
+    pub are_interrupts_disabled: bool,
+    pub reserved11: B5,
+}
+
+#[bitpiece(16)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PciConfigRegStatus {
+    pub reserved0: B3,
+    pub is_interrupt_pending: bool,
+    pub supports_new_capabilites: bool,
+    pub supports_66mhz: bool,
+    pub reserved6: B1,
+    pub supports_fast_back_to_back: bool,
+    pub master_data_parity_error: bool,
+    pub devsel_timing: B2,
+    pub signaled_target_abort: bool,
+    pub received_target_abort: bool,
+    pub received_master_abort: bool,
+    pub signaled_system_error: bool,
+    pub detected_parity_error: bool,
+}
+
+#[bitpiece(2)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum PciDevselTiming {
+    Fast = 0b00,
+    Medium = 0b01,
+    Slow = 0b10,
+    Reserved = 0b11,
 }
 
 #[bitpiece(32)]
