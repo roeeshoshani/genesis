@@ -1,7 +1,7 @@
 use core::{
     marker::PhantomData,
     num::NonZeroU32,
-    ops::{Deref, DerefMut},
+    ops::{Deref, DerefMut, Range},
     sync::atomic::AtomicUsize,
 };
 
@@ -214,18 +214,33 @@ impl PciFunction {
         }
     }
 
-    pub fn bars(self) -> impl Iterator<Item = PciBarReg> {
-        // first decide which range of registers contains the BAR registers
-        let bar_regs_range = match self.header_type().kind() {
+    /// returns the range of configuration space register indexes which are BAR registers.
+    fn bar_regs_range(self) -> Range<u8> {
+        match self.header_type().kind() {
             PciHeaderKind::General => 4..10,
             PciHeaderKind::PciToPciBridge => 4..6,
             PciHeaderKind::PciToCardBusBridge | PciHeaderKind::Unknown => {
                 // no BARs
                 0..0
             }
-        };
+        }
+    }
 
-        bar_regs_range.filter_map(move |reg_num| {
+    pub fn bar(self, index: u8) -> Option<PciBarReg> {
+        let bar_regs_range = self.bar_regs_range();
+
+        let reg_num = bar_regs_range.start + index;
+
+        if !bar_regs_range.contains(&reg_num) {
+            // the index is larger than the amount of BAR registers
+            return None;
+        }
+
+        PciBarReg::new(PciConfigRegTyped::new(self.config_reg(reg_num)))
+    }
+
+    pub fn bars(self) -> impl Iterator<Item = PciBarReg> {
+        self.bar_regs_range().filter_map(move |reg_num| {
             PciBarReg::new(PciConfigRegTyped::new(self.config_reg(reg_num)))
         })
     }
@@ -384,7 +399,7 @@ impl PciBarReg {
         let addr_bits = self.address_noshift();
 
         // calculate the size according to the addr bits
-        let mut size = !addr_bits.wrapping_add(1);
+        let mut size = (!addr_bits).wrapping_add(1);
 
         // special case for IO BARs: if the upper 16-bits of the size information returned 0, then the upper 16-bits of the size
         // should be ignores

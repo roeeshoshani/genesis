@@ -54,7 +54,8 @@ pub struct Piix4IrqRoute {
 }
 
 fn probe_piix4_core(function: PciFunction) {
-    function.map_all_bars_to_memory();
+    let bar = function.bar(0).unwrap();
+    dbg!(bar.size());
     println!("mapped to memory");
 }
 
