@@ -266,7 +266,7 @@ impl PciBarReg {
         }
     }
     /// get the BAR's address value by only masking out the other fields of the BAR, without shifting.
-    pub fn address_noshift(self) -> u32 {
+    fn address_noshift(self) -> u32 {
         match self.kind {
             PciBarKind::Mem => self.mem_bar_reg().read().address_noshift(),
             PciBarKind::Io => self.io_bar_reg().read().address_noshift(),
