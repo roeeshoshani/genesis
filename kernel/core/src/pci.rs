@@ -214,20 +214,23 @@ impl PciFunction {
         }
     }
 
-    pub fn bars(self) -> ArrayVec<PciBarReg, PCI_MAX_BARS> {
+    pub fn bars(self) -> impl Iterator<Item = PciBarReg> {
         // first decide which range of registers contains the BAR registers
         let bar_regs_range = match self.header_type().kind() {
             PciHeaderKind::General => 4..10,
             PciHeaderKind::PciToPciBridge => 4..6,
             PciHeaderKind::PciToCardBusBridge | PciHeaderKind::Unknown => {
                 // no BARs
-                return ArrayVec::new();
+                0..0
             }
         };
 
         bar_regs_range
-            .map(|reg_num| PciBarReg::new(PciConfigRegTyped::new(self.config_reg(reg_num))))
-            .collect()
+            .map(move |reg_num| PciBarReg::new(PciConfigRegTyped::new(self.config_reg(reg_num))))
+    }
+
+    pub fn bars_array(self) -> ArrayVec<PciBarReg, PCI_MAX_BARS> {
+        self.bars().collect()
     }
 
     pub fn config_reg(self, reg_num: u8) -> PciConfigReg {
