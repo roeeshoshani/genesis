@@ -238,26 +238,6 @@ impl PciFunction {
     }
 }
 
-/// decodes the size of a BAR, given the BAR's address value returned after writing a value of all 1 bits to
-/// the BAR.
-///
-/// returns the size of the BAR or `None` if the bar is not implemented (has a size of 0).
-fn bar_decode_size_value_from_addr(bar_addr: u32) -> Option<NonZeroU32> {
-    // the value returned from reading the BAR's address is a bitwise not of the mask of bits that
-    // are needed to represent a relative offset inside the BAR's address space. we can use that
-    // to calculate the BAR's address space size.
-    //
-    // for example, for a BAR of size 16 bytes, the mask of bits needed to represent a relative
-    // offset inside the BAR is `0b1111` or `0xf`. so, the value returned from reading the BAR's address
-    // will be `!0xf` which is `0xfffffff0`.
-    //
-    // to calculate the size of the BAR, we can negate the returned value to get the original mask,
-    // and then add 1 to it to get the size.
-    let size = !bar_addr + 1;
-
-    NonZeroU32::new(size)
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct PciBarReg {
     reg: PciConfigRegTyped<PciBarRaw>,
@@ -283,6 +263,13 @@ impl PciBarReg {
         match self.kind {
             PciBarKind::Mem => self.mem_bar_reg().read().address().get(),
             PciBarKind::Io => self.io_bar_reg().read().address().get(),
+        }
+    }
+    /// get the BAR's address value by only masking out the other fields of the BAR, without shifting.
+    pub fn address_noshift(self) -> u32 {
+        match self.kind {
+            PciBarKind::Mem => self.mem_bar_reg().read().address_noshift(),
+            PciBarKind::Io => self.io_bar_reg().read().address_noshift(),
         }
     }
     pub fn set_address(self, new_address: u32) {
@@ -312,17 +299,27 @@ impl PciBarReg {
         // the BAR's size.
         self.reg.write(BitPiece::ones());
 
-        // read the address which encodes the size
-        let addr = self.address();
-
-        // decode the size from the address
-        let size = bar_decode_size_value_from_addr(addr);
+        // read the BAR's value after writing the 1 bits, and decode it to get the size.
+        //
+        // to get the size, we must first mask out the rest of the BAR's fields, and only keep the BAR's address.
+        //
+        // then, what we are left with is a bitwise not of the mask of bits that are needed to represent
+        // a relative offset inside the BAR's address space. we can use that to calculate the BAR's address
+        // space size.
+        //
+        // for example, for a BAR of size 16 bytes, the mask of bits needed to represent a relative
+        // offset inside the BAR is `0b1111` or `0xf`. so, the value returned from reading the BAR
+        // and masking all fields except the address will be `!0xf` which is `0xfffffff0`.
+        //
+        // to calculate the size of the BAR, we can bitwise not the returned value to get the original mask,
+        // and then add 1 to it to get the size.
+        let size = !self.address_noshift() + 1;
 
         // write back the original value
         self.reg.write(orig);
 
         // return the size of the BAR
-        size
+        NonZeroU32::new(size)
     }
 }
 

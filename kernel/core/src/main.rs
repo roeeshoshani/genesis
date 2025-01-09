@@ -50,8 +50,6 @@ pub struct Piix4IrqRoute {
     pub disable_routing: bool,
 }
 
-// pub struct
-
 fn probe_piix4_core(function: PciFunction) {
     // function.config_reg()
 }
@@ -97,9 +95,7 @@ impl PhysMemBumpAllocator {
 
 /// an error while trying to allocate from the physical memory bump allocator.
 #[derive(Debug, Error)]
-#[error(
-    "requested allocation of {space_requested} bytes, but space left is only {space_left}"
-)]
+#[error("requested allocation of {space_requested} bytes, but space left is only {space_left}")]
 pub struct PhysMemBumpAllocatorError {
     pub space_requested: HexDisplay<usize>,
     pub space_left: HexDisplay<usize>,
