@@ -98,7 +98,7 @@ impl PhysMemBumpAllocator {
 /// an error while trying to allocate from the physical memory bump allocator.
 #[derive(Debug, Error)]
 #[error(
-    "requested allocation of 0x{space_requested:x} bytes, but space left is only 0x{space_left:x}"
+    "requested allocation of {space_requested} bytes, but space left is only {space_left}"
 )]
 pub struct PhysMemBumpAllocatorError {
     pub space_requested: HexDisplay<usize>,
