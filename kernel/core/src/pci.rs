@@ -225,8 +225,9 @@ impl PciFunction {
             }
         };
 
-        bar_regs_range
-            .map(move |reg_num| PciBarReg::new(PciConfigRegTyped::new(self.config_reg(reg_num))))
+        bar_regs_range.filter_map(move |reg_num| {
+            PciBarReg::new(PciConfigRegTyped::new(self.config_reg(reg_num)))
+        })
     }
 
     pub fn bars_array(self) -> ArrayVec<PciBarReg, PCI_MAX_BARS> {
@@ -300,7 +301,9 @@ pub struct PciBarReg {
     kind: PciBarKind,
 }
 impl PciBarReg {
-    pub fn new(reg: PciConfigRegTyped<PciBarRaw>) -> Self {
+    /// creates a new pci BAR register from the given raw BAR register.
+    /// if the BAR is not implemented by the pci device, returns `None`.
+    pub fn new(reg: PciConfigRegTyped<PciBarRaw>) -> Option<Self> {
         let result = Self {
             reg,
             kind: reg.read().kind(),
@@ -321,7 +324,13 @@ impl PciBarReg {
             }
         }
 
-        result
+        // make sure that the bar is implemented by checking that it has a nonzero size
+        if result.size() == 0 {
+            // the bar is not implemented
+            return None;
+        }
+
+        Some(result)
     }
     pub fn kind(self) -> PciBarKind {
         self.kind
@@ -361,8 +370,8 @@ impl PciBarReg {
         };
         self.reg.write(PciBarRaw::from_bits(modified_bits));
     }
-    /// returns the size of the BAR, or `None` if the bar is not implemented (has a size of 0).
-    pub fn size(self) -> Option<NonZeroU32> {
+    /// returns the size of the BAR.
+    pub fn size(self) -> u32 {
         // TODO: what if someone modified the BAR while we are doing this?
 
         // save the original value before modifying the BAR
@@ -392,7 +401,7 @@ impl PciBarReg {
         self.reg.write(orig);
 
         // return the size of the BAR
-        NonZeroU32::new(size)
+        size
     }
     pub fn is_mapped_to_memory(&self) -> bool {
         self.address() != 0
@@ -402,24 +411,15 @@ impl PciBarReg {
         // and then time we actually map it?
         assert!(!self.is_mapped_to_memory());
 
-        match self.size() {
-            Some(size) => {
-                // allocate an address for the BAR and set its base address
-                let allocator = match self.kind() {
-                    PciBarKind::Mem => &PCI_MEM_SPACE_ALLOCATOR,
-                    PciBarKind::Io => &PCI_IO_SPACE_ALLOCATOR,
-                };
-                let base_addr = allocator
-                    .alloc(size.get() as usize)
-                    .expect("failed to allocate address space for PCI BAR");
-                self.set_address(base_addr.0 as u32);
-            }
-            None => {
-                // BAR is not implemented, make sure that its address is 0, so that future users
-                // will know that it is not implemented just by looking at its address.
-                self.set_address(0);
-            }
-        }
+        // allocate an address for the BAR and set its base address
+        let allocator = match self.kind() {
+            PciBarKind::Mem => &PCI_MEM_SPACE_ALLOCATOR,
+            PciBarKind::Io => &PCI_IO_SPACE_ALLOCATOR,
+        };
+        let base_addr = allocator
+            .alloc(self.size() as usize)
+            .expect("failed to allocate address space for PCI BAR");
+        self.set_address(base_addr.0 as u32);
     }
 }
 
