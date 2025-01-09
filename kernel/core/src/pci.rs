@@ -2,14 +2,23 @@ use core::{
     marker::PhantomData,
     num::NonZeroU32,
     ops::{Deref, DerefMut},
+    sync::atomic::AtomicUsize,
 };
 
 use arrayvec::ArrayVec;
 use bitpiece::*;
-use hal::mmio::gt64120::Gt64120Regs;
+use hal::{
+    mem::{PhysAddr, PhysMemRegion, PCI_0_IO, PCI_0_MEM},
+    mmio::gt64120::Gt64120Regs,
+};
 use paste::paste;
+use thiserror_no_std::Error;
 
-use crate::{interrupts::with_interrupts_disabled, println, utils::max_val_of_bit_len};
+use crate::{
+    interrupts::with_interrupts_disabled,
+    println,
+    utils::{max_val_of_bit_len, HexDisplay},
+};
 
 /// the maximum amount of BARs that a single function may have.
 const PCI_MAX_BARS: usize = 6;
@@ -30,6 +39,45 @@ pub struct PciConfigAddr {
     pub reserved: B7,
     pub enabled: bool,
 }
+
+/// a physical memory bump allocator, which allocates from the given physical memory region.
+pub struct PhysMemBumpAllocator {
+    cur_addr: AtomicUsize,
+    end_addr: PhysAddr,
+}
+impl PhysMemBumpAllocator {
+    pub const fn new(region: PhysMemRegion) -> Self {
+        Self {
+            cur_addr: AtomicUsize::new(region.start.0),
+            end_addr: region.end,
+        }
+    }
+    pub fn alloc(&self, size: usize) -> Result<PhysAddr, PhysMemBumpAllocatorError> {
+        let allocated_addr = self
+            .cur_addr
+            .fetch_add(size, core::sync::atomic::Ordering::Relaxed);
+        let end_addr = allocated_addr + size;
+        if end_addr <= self.end_addr.0 {
+            Ok(PhysAddr(allocated_addr))
+        } else {
+            Err(PhysMemBumpAllocatorError {
+                space_requested: HexDisplay(size),
+                space_left: HexDisplay(self.end_addr.0 - allocated_addr),
+            })
+        }
+    }
+}
+
+/// an error while trying to allocate from the physical memory bump allocator.
+#[derive(Debug, Error)]
+#[error("requested allocation of {space_requested} bytes, but space left is only {space_left}")]
+pub struct PhysMemBumpAllocatorError {
+    pub space_requested: HexDisplay<usize>,
+    pub space_left: HexDisplay<usize>,
+}
+
+static PCI_IO_SPACE_ALLOCATOR: PhysMemBumpAllocator = PhysMemBumpAllocator::new(PCI_0_IO);
+static PCI_MEM_SPACE_ALLOCATOR: PhysMemBumpAllocator = PhysMemBumpAllocator::new(PCI_0_MEM);
 
 pub fn pci_config_read(addr: PciConfigAddr) -> u32 {
     // do this with interrupts disabled to prevent an interrupt handler from overwriting the pci config register while
@@ -236,6 +284,11 @@ impl PciFunction {
     pub fn function_num(&self) -> u8 {
         self.addr.function_num().get()
     }
+    pub fn map_all_bars_to_memory(&self) {
+        for bar in self.bars() {
+            bar.map_to_memory();
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -320,6 +373,33 @@ impl PciBarReg {
 
         // return the size of the BAR
         NonZeroU32::new(size)
+    }
+    pub fn is_mapped_to_memory(&self) -> bool {
+        self.address() != 0
+    }
+    pub fn map_to_memory(&self) {
+        // TODO: time of check time of use here. what if someone maps the BAR to memory between the time we check
+        // and then time we actually map it?
+        assert!(!self.is_mapped_to_memory());
+
+        match self.size() {
+            Some(size) => {
+                // allocate an address for the BAR and set its base address
+                let allocator = match self.kind() {
+                    PciBarKind::Mem => &PCI_MEM_SPACE_ALLOCATOR,
+                    PciBarKind::Io => &PCI_IO_SPACE_ALLOCATOR,
+                };
+                let base_addr = allocator
+                    .alloc(size.get() as usize)
+                    .expect("failed to allocate address space for PCI BAR");
+                self.set_address(base_addr.0 as u32);
+            }
+            None => {
+                // BAR is not implemented, make sure that its address is 0, so that future users
+                // will know that it is not implemented just by looking at its address.
+                self.set_address(0);
+            }
+        }
     }
 }
 
