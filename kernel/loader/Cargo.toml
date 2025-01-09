@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bitpiece = "0.1.8"
+bitpiece = "0.1.9"
 loader_shared = { path = "../loader_shared" }
 hal = { path = "../hal" }
 

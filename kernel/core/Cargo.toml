@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 arrayvec = { version = "0.7.6", default-features = false }
-bitpiece = "0.1.8"
+bitpiece = "0.1.9"
 const_for = "0.1.5"
 hal = { path = "../hal" }
 paste = "1.0.15"
