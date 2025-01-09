@@ -1,12 +1,32 @@
 use bitpiece::*;
 
 #[bitpiece(8)]
+#[derive(Debug, Clone, Copy)]
+pub struct Pic8259OpCmd3 {
+    pub reg_read_cmd: Pic8259RegReadCmd,
+    pub poll_mode_cmd: bool,
+    pub must_be_true: bool,
+    pub must_be_false: bool,
+    pub enable_special_mask_mode: bool,
+    pub special_mask_mode: bool,
+    pub reserved7: B1,
+}
+
+#[bitpiece(2)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum Pic8259RegReadCmd {
+    NoAction0 = 0b00,
+    NoAction1 = 0b01,
+    ReadIrrReg = 0b10,
+    ReadIsrReg = 0b11,
+}
+
+#[bitpiece(8)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Pic8259InitCmd1 {
     pub icw4_write_required: bool,
-    pub is_single: bool,
-    pub reserved2: B2,
-    pub start_initialization: bool,
+    pub reserved3: B3,
+    pub must_be_true: bool,
     pub reserved5: B3,
 }
 
