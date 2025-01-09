@@ -377,25 +377,20 @@ impl PciBarReg {
         // save the original value before modifying the BAR
         let orig = self.reg.read();
 
-        // write a value of all 1 bits to the BAR. this will make the next read to the BAR's address return
-        // the BAR's size.
+        // write a value of all 1 bits to the BAR. this will make the next read to the BAR return its size information.
         self.reg.write(BitPiece::ones());
 
-        // read the BAR's value after writing the 1 bits, and decode it to get the size.
-        //
-        // to get the size, we must first mask out the rest of the BAR's fields, and only keep the BAR's address.
-        //
-        // then, what we are left with is a bitwise not of the mask of bits that are needed to represent
-        // a relative offset inside the BAR's address space. we can use that to calculate the BAR's address
-        // space size.
-        //
-        // for example, for a BAR of size 16 bytes, the mask of bits needed to represent a relative
-        // offset inside the BAR is `0b1111` or `0xf`. so, the value returned from reading the BAR
-        // and masking all fields except the address will be `!0xf` which is `0xfffffff0`.
-        //
-        // to calculate the size of the BAR, we can bitwise not the returned value to get the original mask,
-        // and then add 1 to it to get the size.
-        let size = !self.address_noshift().wrapping_add(1);
+        // read the value of the bar after writing the all 1 bits value, and only take the address bits.
+        let addr_bits = self.address_noshift();
+
+        // calculate the size according to the addr bits
+        let mut size = !addr_bits.wrapping_add(1);
+
+        // special case for IO BARs: if the upper 16-bits of the size information returned 0, then the upper 16-bits of the size
+        // should be ignores
+        if self.kind == PciBarKind::Io && addr_bits >> 16 == 0 {
+            size = size & 0xffff;
+        }
 
         // write back the original value
         self.reg.write(orig);
