@@ -636,14 +636,7 @@ impl<F: FnMut(PciFunction)> PciScanner<F> {
         if function.class_code() == PciClassCode::BRIDGE
             && function.subclass() == PciBridgeSubclass::PCI_PCI_BRIDGE
         {
-            // verify that the structure of the header is that of a pci to pci bridge
-            assert_eq!(function.header_type().kind(), PciHeaderKind::PciToPciBridge);
-
-            // read the register which contains information about the downstream bus of the bridge
-            let reg = PciToPciBridgeConfigReg6::from_bits(function.config_reg(6).read());
-
-            // scan the secondary bus
-            self.scan_bus(PciBus::new(reg.secondary_bus_num()));
+            todo!("pci to pci bridges are currently not supported");
         }
     }
 }
