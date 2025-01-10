@@ -4,13 +4,7 @@ use bitpiece::BitPiece;
 use hal::{
     insn::{MipsAbsJump, MipsInsnReg, MipsMoveInsn},
     mem::{VirtAddr, GENERAL_EXCEPTION_VECTOR_ADDR},
-    mmio::piix4::{
-        I8259InitCmd1, I8259InitCmd1Fields, I8259InitCmd2, I8259InitCmd2Fields,
-        I8259InitCmd3Master, I8259InitCmd3MasterFields, I8259InitCmd4, I8259InitCmd4Fields,
-        I8259OpCmd2, I8259OpCmd2Fields, I8259OpCmd2Kind, I8259OpCmd3, I8259OpCmd3Fields,
-        I8259RegReadCmd, Piix4CountdownKind, Piix4CounterMode, Piix4CounterSelect, Piix4IoRegs,
-        Piix4TimerControlRegularCmd, Piix4TimerControlRegularCmdFields, Piix4TimerRwSelect,
-    },
+    mmio::piix4::*,
     sys::{
         Cp0Reg, Cp0RegCause, Cp0RegStatus, CpuErrorLevel, CpuExceptionLevel, InterruptBitmap,
         OperatingMode,
