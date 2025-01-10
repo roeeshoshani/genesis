@@ -8,7 +8,9 @@ use hal::{
     mem::{PhysAddr, PhysMemRegion, PCI_0_IO, PCI_0_MEM},
     mmio::gt64120::Gt64120Regs,
 };
-use interrupts::{interrupts_disable, interrupts_enable, interrupts_init};
+use interrupts::{
+    interrupts_disable, interrupts_enable, interrupts_init, PIIX4_I8259_CHAIN, PIIX4_I8259_MASTER,
+};
 use pci::{pci_scan, PciBarKind, PciBarReg, PciConfigRegTyped, PciFunction, PciId, PciMemBar};
 use thiserror_no_std::Error;
 use uart::{uart_init, uart_read_byte};

@@ -7,9 +7,9 @@ use hal::{
     mmio::piix4::{
         I8259InitCmd1, I8259InitCmd1Fields, I8259InitCmd2, I8259InitCmd2Fields,
         I8259InitCmd3Master, I8259InitCmd3MasterFields, I8259InitCmd4, I8259InitCmd4Fields,
-        I8259OpCmd3, I8259OpCmd3Fields, Piix4CountdownKind, Piix4CounterMode, Piix4CounterSelect,
-        Piix4IoRegs, Piix4TimerControlRegularCmd, Piix4TimerControlRegularCmdFields,
-        Piix4TimerRwSelect,
+        I8259OpCmd2, I8259OpCmd2Fields, I8259OpCmd2Kind, I8259OpCmd3, I8259OpCmd3Fields,
+        I8259RegReadCmd, Piix4CountdownKind, Piix4CounterMode, Piix4CounterSelect, Piix4IoRegs,
+        Piix4TimerControlRegularCmd, Piix4TimerControlRegularCmdFields, Piix4TimerRwSelect,
     },
     sys::{
         Cp0Reg, Cp0RegCause, Cp0RegStatus, CpuErrorLevel, CpuExceptionLevel, InterruptBitmap,
@@ -360,6 +360,63 @@ impl I8259Dev {
             .to_bits(),
         );
     }
+
+    fn read_op3_reg(&self, reg_read_cmd: I8259RegReadCmd) -> u8 {
+        self.cmd_reg.write(
+            I8259OpCmd3::from_fields(I8259OpCmd3Fields {
+                reg_read_cmd,
+                poll_mode_cmd: false,
+                must_be_true: true,
+                reserved4: BitPiece::zeroes(),
+                enable_special_mask_mode: false,
+                special_mask_mode: false,
+                reserved7: BitPiece::zeroes(),
+            })
+            .to_bits(),
+        );
+        self.cmd_reg.read()
+    }
+
+    pub fn read_irr(&self) -> u8 {
+        self.read_op3_reg(I8259RegReadCmd::ReadIrrReg)
+    }
+    pub fn read_isr(&self) -> u8 {
+        self.read_op3_reg(I8259RegReadCmd::ReadIsrReg)
+    }
+    pub fn eoi(&self) {
+        self.cmd_reg.write(
+            I8259OpCmd2::from_fields(I8259OpCmd2Fields {
+                irq_line_select: BitPiece::zeroes(),
+                reserved: BitPiece::zeroes(),
+                cmd_kind: I8259OpCmd2Kind::NonSpecificEoiCmd,
+            })
+            .to_bits(),
+        );
+    }
+}
+
+/// a chain of 2 i8259 devices.
+pub struct I8259Chain {
+    pub master: I8259Dev,
+    pub slave: I8259Dev,
+}
+impl I8259Chain {
+    pub fn init(&self) {
+        self.master.init();
+        self.slave.init();
+    }
+    pub fn read_irr(&self) -> u16 {
+        self.master.read_irr() as u16 | ((self.slave.read_irr() as u16) << 8)
+    }
+    pub fn read_isr(&self) -> u16 {
+        self.master.read_isr() as u16 | ((self.slave.read_isr() as u16) << 8)
+    }
+    pub fn eoi(&self) {
+        // TODO: do we always want to do an EOI on the slave here? no we don't... but for that we need to know which irq line
+        // the interrupt was received on, which i currently have no idea how to do.
+        self.slave.eoi();
+        self.master.eoi();
+    }
 }
 
 pub const PIIX4_I8259_MASTER: I8259Dev = I8259Dev {
@@ -372,13 +429,14 @@ pub const PIIX4_I8259_SLAVE: I8259Dev = I8259Dev {
     data_reg: Piix4IoRegs::slave_8259_data(),
     is_master: false,
 };
+pub const PIIX4_I8259_CHAIN: I8259Chain = I8259Chain {
+    master: PIIX4_I8259_MASTER,
+    slave: PIIX4_I8259_SLAVE,
+};
 
 fn i8259_init() {
-    PIIX4_I8259_MASTER.init();
-    PIIX4_I8259_SLAVE.init();
+    PIIX4_I8259_CHAIN.init();
 }
-
-fn i8259_get_isr() {}
 
 pub fn interrupts_init() {
     write_general_exception_vector_sub();
