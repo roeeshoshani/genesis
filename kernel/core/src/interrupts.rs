@@ -5,14 +5,18 @@ use hal::{
     insn::{MipsAbsJump, MipsInsnReg, MipsMoveInsn},
     mem::{VirtAddr, GENERAL_EXCEPTION_VECTOR_ADDR},
     mmio::piix4::{
-        Piix4CountdownKind, Piix4CounterMode, Piix4CounterSelect, Piix4IoRegs,
-        Piix4TimerControlRegularCmd, Piix4TimerControlRegularCmdFields, Piix4TimerRwSelect,
+        I8259InitCmd1, I8259InitCmd1Fields, I8259InitCmd2, I8259InitCmd2Fields,
+        I8259InitCmd3Master, I8259InitCmd3MasterFields, I8259InitCmd4, I8259InitCmd4Fields,
+        I8259OpCmd3, I8259OpCmd3Fields, Piix4CountdownKind, Piix4CounterMode, Piix4CounterSelect,
+        Piix4IoRegs, Piix4TimerControlRegularCmd, Piix4TimerControlRegularCmdFields,
+        Piix4TimerRwSelect,
     },
     sys::{
         Cp0Reg, Cp0RegCause, Cp0RegStatus, CpuErrorLevel, CpuExceptionLevel, InterruptBitmap,
         OperatingMode,
     },
 };
+use volatile::VolatilePtr;
 
 use crate::println;
 
@@ -308,9 +312,78 @@ fn piix4_timer_init() {
     Piix4IoRegs::counter_0().write(u8::MAX);
 }
 
+pub struct I8259Dev {
+    pub cmd_reg: VolatilePtr<'static, u8>,
+    pub data_reg: VolatilePtr<'static, u8>,
+    pub is_master: bool,
+}
+impl I8259Dev {
+    pub fn init(&self) {
+        self.cmd_reg.write(
+            I8259InitCmd1::from_fields(I8259InitCmd1Fields {
+                icw4_write_required: true,
+                reserved3: BitPiece::zeroes(),
+                must_be_true: true,
+                reserved5: BitPiece::zeroes(),
+            })
+            .to_bits(),
+        );
+        self.data_reg.write(
+            I8259InitCmd2::from_fields(I8259InitCmd2Fields {
+                reserved0: BitPiece::zeroes(),
+                interrupt_vector_base: BitPiece::from_bits(if self.is_master {
+                    // the master's base irq is 0
+                    0
+                } else {
+                    // the slave's base irq is 8, since the master has 8 irqs
+                    8
+                }),
+            })
+            .to_bits(),
+        );
+        self.data_reg.write(
+            I8259InitCmd3Master::from_fields(I8259InitCmd3MasterFields {
+                reserved0: BitPiece::zeroes(),
+                enable_cascaded_mode: true,
+                reserved3: BitPiece::zeroes(),
+            })
+            .to_bits(),
+        );
+        self.data_reg.write(
+            I8259InitCmd4::from_fields(I8259InitCmd4Fields {
+                microprocessor_mode: true,
+                automatic_end_of_interrupt: false,
+                reserved2: BitPiece::zeroes(),
+                special_fully_nested_mode: false,
+                reserved5: BitPiece::zeroes(),
+            })
+            .to_bits(),
+        );
+    }
+}
+
+pub const PIIX4_I8259_MASTER: I8259Dev = I8259Dev {
+    cmd_reg: Piix4IoRegs::master_8259_cmd(),
+    data_reg: Piix4IoRegs::master_8259_data(),
+    is_master: true,
+};
+pub const PIIX4_I8259_SLAVE: I8259Dev = I8259Dev {
+    cmd_reg: Piix4IoRegs::slave_8259_cmd(),
+    data_reg: Piix4IoRegs::slave_8259_data(),
+    is_master: false,
+};
+
+fn i8259_init() {
+    PIIX4_I8259_MASTER.init();
+    PIIX4_I8259_SLAVE.init();
+}
+
+fn i8259_get_isr() {}
+
 pub fn interrupts_init() {
     write_general_exception_vector_sub();
     init_cp0_status();
     init_cp0_cause();
     piix4_timer_init();
+    i8259_init();
 }

@@ -119,10 +119,31 @@ pub struct I8259OpCmd3 {
     pub reg_read_cmd: I8259RegReadCmd,
     pub poll_mode_cmd: bool,
     pub must_be_true: bool,
-    pub must_be_false: bool,
+    pub reserved4: B1,
     pub enable_special_mask_mode: bool,
     pub special_mask_mode: bool,
     pub reserved7: B1,
+}
+
+#[bitpiece(8)]
+#[derive(Debug, Clone, Copy)]
+pub struct I8259OpCmd2 {
+    pub irq_line_select: B3,
+    pub reserved: B2,
+    pub cmd_kind: I8259OpCmd2Kind,
+}
+
+#[bitpiece(3)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum I8259OpCmd2Kind {
+    RotateInAutoEoiModeClear = 0b000,
+    NonSpecificEoiCmd = 0b001,
+    Nop = 0b010,
+    SpecificEoiCmd = 0b011,
+    RotateInAutoEoiModeSet = 0b100,
+    RotateOnNonSpecificEoiCmd = 0b101,
+    SetPriorityCmd = 0b110,
+    RotateOnSpecificEoiCmd = 0b111,
 }
 
 #[bitpiece(2)]

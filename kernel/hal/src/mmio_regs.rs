@@ -16,11 +16,11 @@ macro_rules! mmio_reg {
         $name: ident, $value_ty: ty, $access: ident, $offset: literal
     } => {
         $(#[$outer])*
-        pub fn $name() -> volatile::VolatilePtr<'static, $value_ty, volatile::access::$access> {
+        pub const fn $name() -> volatile::VolatilePtr<'static, $value_ty, volatile::access::$access> {
             unsafe {
                 volatile::VolatilePtr::new_restricted(
                     volatile::access::$access,
-                    core::ptr::NonNull::new_unchecked((Self::BASE_VIRT_ADDR + $offset).as_mut()),
+                    core::ptr::NonNull::new_unchecked($crate::mem::VirtAddr(Self::BASE_VIRT_ADDR.0 + $offset).as_mut()),
                 )
             }
         }
