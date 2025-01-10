@@ -54,9 +54,7 @@ pub struct Piix4IrqRoute {
 }
 
 fn probe_piix4_core(function: PciFunction) {
-    let bar = function.bar(0).unwrap();
-    dbg!(bar.size());
-    println!("mapped to memory");
+    println!("probing piix4");
 }
 
 fn probe_pci_function(function: PciFunction) {
@@ -77,6 +75,7 @@ extern "C" fn _start() {
 
     pci_scan(probe_pci_function);
 
+    interrupts_enable();
     loop {
         let byte = uart_read_byte();
         println!("received byte: {}", byte);

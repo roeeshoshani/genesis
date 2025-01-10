@@ -4,6 +4,10 @@ use bitpiece::BitPiece;
 use hal::{
     insn::{MipsAbsJump, MipsInsnReg, MipsMoveInsn},
     mem::{VirtAddr, GENERAL_EXCEPTION_VECTOR_ADDR},
+    mmio::piix4::{
+        Piix4CountdownKind, Piix4CounterMode, Piix4CounterSelect, Piix4IoRegs,
+        Piix4TimerControlRegularCmd, Piix4TimerControlRegularCmdFields, Piix4TimerRwSelect,
+    },
     sys::{
         Cp0Reg, Cp0RegCause, Cp0RegStatus, CpuErrorLevel, CpuExceptionLevel, InterruptBitmap,
         OperatingMode,
@@ -290,8 +294,23 @@ fn init_cp0_cause() {
     Cp0RegCause::write(cause);
 }
 
+fn piix4_timer_init() {
+    Piix4IoRegs::timer_control().write(
+        Piix4TimerControlRegularCmd::from_fields(Piix4TimerControlRegularCmdFields {
+            countdown_kind: Piix4CountdownKind::BinaryCountdown,
+            counter_mode: Piix4CounterMode::HardwareTriggeredStrobe,
+            rw_select: Piix4TimerRwSelect::RwLsbThenMsb,
+            counter_select: Piix4CounterSelect::Counter0,
+        })
+        .to_bits(),
+    );
+    Piix4IoRegs::counter_0().write(u8::MAX);
+    Piix4IoRegs::counter_0().write(u8::MAX);
+}
+
 pub fn interrupts_init() {
     write_general_exception_vector_sub();
     init_cp0_status();
     init_cp0_cause();
+    piix4_timer_init();
 }
