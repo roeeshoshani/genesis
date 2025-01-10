@@ -335,14 +335,24 @@ impl I8259Dev {
             })
             .to_bits(),
         );
-        self.data_reg.write(
-            I8259InitCmd3Master::from_fields(I8259InitCmd3MasterFields {
-                reserved0: BitPiece::zeroes(),
-                enable_cascaded_mode: true,
-                reserved3: BitPiece::zeroes(),
-            })
-            .to_bits(),
-        );
+        if self.is_master {
+            self.data_reg.write(
+                I8259InitCmd3Master::from_fields(I8259InitCmd3MasterFields {
+                    reserved0: BitPiece::zeroes(),
+                    enable_cascaded_mode: true,
+                    reserved3: BitPiece::zeroes(),
+                })
+                .to_bits(),
+            );
+        } else {
+            self.data_reg.write(
+                I8259InitCmd3Slave::from_fields(I8259InitCmd3SlaveFields {
+                    slave_identification_code: BitPiece::from_bits(0b010),
+                    reserved3: BitPiece::zeroes(),
+                })
+                .to_bits(),
+            );
+        }
         self.data_reg.write(
             I8259InitCmd4::from_fields(I8259InitCmd4Fields {
                 microprocessor_mode: true,
