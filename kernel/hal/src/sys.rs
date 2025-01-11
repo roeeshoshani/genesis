@@ -437,8 +437,14 @@ impl Cp0Reg for Cp0RegStatus {
 #[bitpiece(8)]
 #[derive(Debug, Clone, Copy)]
 pub struct InterruptBitmap {
-    pub software: B2,
-    pub hardware: B6,
+    pub software0: bool,
+    pub software1: bool,
+    pub piix4_intr: bool,
+    pub piix4_smi: bool,
+    pub tty2: bool,
+    pub corehi: bool,
+    pub corelo: bool,
+    pub nop: bool,
 }
 
 /// a cpu exception code.

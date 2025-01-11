@@ -17,6 +17,9 @@ fn uart_set_baud_rate_divisor(divisor: u16) {
 }
 
 pub fn uart_init() {
+    // disable divisor latch access. the default state of the UART is expected to have the divisor latch access disabled.
+    uart_set_divisor_latch_access(false);
+
     // disable interrupts to use polled mode
     UartRegs::interrupt_enable().write(UartInterruptEnableReg::from_fields(
         UartInterruptEnableRegFields {

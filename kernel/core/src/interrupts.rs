@@ -1,13 +1,13 @@
 use core::arch::global_asm;
 
-use bitpiece::BitPiece;
+use bitpiece::*;
 use hal::{
     insn::{MipsAbsJump, MipsInsnReg, MipsMoveInsn},
     mem::{VirtAddr, GENERAL_EXCEPTION_VECTOR_ADDR},
     mmio::piix4::*,
     sys::{
         Cp0Reg, Cp0RegCause, Cp0RegStatus, CpuErrorLevel, CpuExceptionLevel, InterruptBitmap,
-        OperatingMode,
+        InterruptBitmapFields, OperatingMode,
     },
 };
 use volatile::VolatilePtr;
@@ -214,15 +214,12 @@ extern "C" fn general_exception_handler() {
     let pending = cause.pending_interrupts();
 
     // we do not support software interrupts
-    let pending_software_interrupts = pending.software().get();
-    if pending_software_interrupts != 0 {
-        panic!(
-            "software interrupts are not supported, but got pending software interrupts: 0b{:b}",
-            pending_software_interrupts
-        );
+    if pending.software0() || pending.software1() {
+        panic!("software interrupts are not supported, but got pending software interrupts");
     }
 
-    println!("pending hw: {:b}", pending.hardware().get());
+    println!("interrupt: {:?}", pending.to_fields());
+    PIIX4_I8259_CHAIN.eoi();
 }
 
 fn write_general_exception_vector_sub() {
@@ -263,9 +260,18 @@ fn init_cp0_status() {
     // don't use the bootstrap exception vectors, use the normal ones
     status.set_use_bootstrap_exception_vectors(false);
 
-    // enable all interrupts in the interrupt mask. this will allow us to receive all types of interrupts once we eventually
-    // enable interrupts.
-    status.set_interrupt_mask(InterruptBitmap::ones());
+    // enable all interrupts, except for the tty2 UART interrupts.
+    //
+    // qemu's implementation of the the tty2 UART device generates interrupts requests to the cpu even when we configure
+    // it to not use interrupts.
+    //
+    // we need to be able to write to the UART without generating interrupts, because we want to write to it inside our interrupt handler,
+    // and this can generate an infinite interrupt loop.
+    //
+    // so, we mask this interrupt out.
+    let mut interrupt_enable_mask = InterruptBitmap::ones();
+    interrupt_enable_mask.set_tty2(false);
+    status.set_interrupt_mask(interrupt_enable_mask);
 
     // initialize the operating mode properly
     status.set_operating_mode(OperatingMode::KernelMode);
