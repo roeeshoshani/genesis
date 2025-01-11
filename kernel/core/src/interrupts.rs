@@ -7,7 +7,7 @@ use hal::{
     mmio::{gt64120::Gt64120Regs, piix4::*},
     sys::{
         Cp0Reg, Cp0RegCause, Cp0RegStatus, CpuErrorLevel, CpuExceptionLevel, InterruptBitmap,
-        InterruptBitmapFields, OperatingMode,
+        OperatingMode,
     },
 };
 use volatile::VolatilePtr;
