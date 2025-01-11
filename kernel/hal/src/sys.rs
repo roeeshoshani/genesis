@@ -444,7 +444,7 @@ pub struct InterruptBitmap {
     pub tty2: bool,
     pub corehi: bool,
     pub corelo: bool,
-    pub nop: bool,
+    pub timer: bool,
 }
 
 /// a cpu exception code.
