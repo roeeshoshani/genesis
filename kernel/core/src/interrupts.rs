@@ -271,6 +271,10 @@ fn init_cp0_status() {
     // so, we mask this interrupt out.
     let mut interrupt_enable_mask = InterruptBitmap::ones();
     interrupt_enable_mask.set_tty2(false);
+    // NOTE: i currently disable the timer interrupt just so that it is easier for me to work with the PIIX4 interrupts to understand
+    // how they work.
+    // TODO: remove this to re-enable the timer interrupt
+    interrupt_enable_mask.set_timer(false);
     status.set_interrupt_mask(interrupt_enable_mask);
 
     // initialize the operating mode properly
@@ -310,6 +314,30 @@ fn piix4_timer_init() {
     );
     Piix4IoRegs::counter_0().write(u8::MAX);
     Piix4IoRegs::counter_0().write(u8::MAX);
+
+    Piix4IoRegs::timer_control().write(
+        Piix4TimerControlRegularCmd::from_fields(Piix4TimerControlRegularCmdFields {
+            countdown_kind: Piix4CountdownKind::BinaryCountdown,
+            counter_mode: Piix4CounterMode::HardwareTriggeredStrobe,
+            rw_select: Piix4TimerRwSelect::RwLsbThenMsb,
+            counter_select: Piix4CounterSelect::Counter1,
+        })
+        .to_bits(),
+    );
+    Piix4IoRegs::counter_1().write(u8::MAX);
+    Piix4IoRegs::counter_1().write(u8::MAX);
+
+    Piix4IoRegs::timer_control().write(
+        Piix4TimerControlRegularCmd::from_fields(Piix4TimerControlRegularCmdFields {
+            countdown_kind: Piix4CountdownKind::BinaryCountdown,
+            counter_mode: Piix4CounterMode::HardwareTriggeredStrobe,
+            rw_select: Piix4TimerRwSelect::RwLsbThenMsb,
+            counter_select: Piix4CounterSelect::Counter2,
+        })
+        .to_bits(),
+    );
+    Piix4IoRegs::counter_2().write(u8::MAX);
+    Piix4IoRegs::counter_2().write(u8::MAX);
 }
 
 pub struct I8259Dev {
