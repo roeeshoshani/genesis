@@ -4,7 +4,7 @@ use bitpiece::*;
 use hal::{
     insn::{MipsAbsJump, MipsInsnReg, MipsMoveInsn},
     mem::{VirtAddr, GENERAL_EXCEPTION_VECTOR_ADDR},
-    mmio::piix4::*,
+    mmio::{gt64120::Gt64120Regs, piix4::*},
     sys::{
         Cp0Reg, Cp0RegCause, Cp0RegStatus, CpuErrorLevel, CpuExceptionLevel, InterruptBitmap,
         InterruptBitmapFields, OperatingMode,
@@ -219,7 +219,50 @@ extern "C" fn general_exception_handler() {
     }
 
     println!("interrupt: {:?}", pending.to_fields());
-    PIIX4_I8259_CHAIN.eoi();
+
+    if pending.piix4_intr() {
+        // acknowledge the interrupt
+        let _ = Gt64120Regs::pci_0_interrupt_ack().read();
+
+        // read the interrupt service register of the interrupt controller. this will tell us which interrupt we are currently servicing.
+        let isr = PIIX4_I8259_CHAIN.read_isr();
+
+        // the isr should only have 1 bit set, since we only service one interrupt at a time.
+        assert_eq!(isr.count_ones(), 1);
+        let irq = I8259Irq::from_bits(isr.trailing_zeros() as u8);
+
+        match irq {
+            I8259Irq::Timer => {
+                // TODO
+            }
+            _ => {
+                panic!("received unsupported i8259 irq: {:?}", irq)
+            }
+        }
+
+        PIIX4_I8259_CHAIN.eoi();
+    }
+}
+
+#[bitpiece(4)]
+#[derive(Debug, Clone, Copy)]
+pub enum I8259Irq {
+    Timer = 0,
+    Keyboard = 1,
+    Reserved2 = 2,
+    Tty1 = 3,
+    Tty2 = 4,
+    Unused5 = 5,
+    FloppyDisk = 6,
+    ParallelPort = 7,
+    RealTimeClock = 8,
+    I2C = 9,
+    PciAB = 10,
+    PciCD = 11,
+    Mouse = 12,
+    Reserved13 = 13,
+    PrimaryIde = 14,
+    SecondaryIde = 15,
 }
 
 fn write_general_exception_vector_sub() {
