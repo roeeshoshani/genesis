@@ -146,26 +146,18 @@ pub struct VirtMemRegion {
     /// the start address of the region.
     pub start: VirtAddr,
 
-    /// the end address of the region.
-    pub end: VirtAddr,
+    /// the size of the region.
+    pub size: usize,
 }
 impl VirtMemRegion {
     /// creates a new region with the given start address and size
     pub const fn new(start: VirtAddr, size: usize) -> Self {
-        Self {
-            start,
-            end: VirtAddr(start.0 + size),
-        }
+        Self { start, size }
     }
 
-    /// returns the size of the region
-    pub const fn size(&self) -> usize {
-        self.end.0 - self.start.0
-    }
-
-    /// returns whether this memory region contains the given address
+    /// returns whether this memory region contains the byte at the given memory address
     pub const fn contains(&self, addr: VirtAddr) -> bool {
-        addr.0 >= self.start.0 && addr.0 < self.end.0
+        (addr.0 >= self.start.0) && (addr.0 - self.start.0) < self.size
     }
 
     /// returns the offset of the given address within this memory region, if the address is within this memory region.
@@ -178,7 +170,7 @@ impl VirtMemRegion {
 
     /// returns the address at the given offset from the start of the region if the offset is within the bounds of the region.
     pub const fn addr_at_offset(&self, offset: usize) -> Option<VirtAddr> {
-        if offset >= self.size() {
+        if offset >= self.size {
             return None;
         }
         // can't use `?` here since using it in const functions is not stable yet.
@@ -238,16 +230,58 @@ impl PhysMemRegion {
     }
 }
 
+/// the kuseg memory region. this is a mapped and cacheable memory region accessible from usermode.
+///
+/// its address range is `0x0000_0000..0x8000_0000`
+pub const KUSEG: VirtMemRegion = VirtMemRegion {
+    start: VirtAddr(0x0000_0000),
+    size: 0x8000_0000,
+};
+
 /// the kseg0 memory region. this is an unmapped and cacheable memory region.
+///
+/// its address range is `0x8000_0000..0xa000_0000`
 pub const KSEG0: VirtMemRegion = VirtMemRegion {
     start: VirtAddr(0x8000_0000),
-    end: VirtAddr(0xa000_0000),
+    size: 0x20000000,
 };
 
 /// the kseg1 memory region. this is an unmapped and uncached memory region.
+///
+/// its address range is `0xa000_0000..0xc000_0000`
 pub const KSEG1: VirtMemRegion = VirtMemRegion {
     start: VirtAddr(0xa000_0000),
-    end: VirtAddr(0xc000_0000),
+    size: 0x20000000,
+};
+
+/// the kseg2 memory region. this is a mapped and cacheable memory region accessible from supervisor mode.
+///
+/// its address range is `0xc000_0000..0xe000_0000`
+pub const KSEG2: VirtMemRegion = VirtMemRegion {
+    start: VirtAddr(0xc000_0000),
+    size: 0x20000000,
+};
+
+/// the kseg3 memory region. this is a mapped and cacheable memory region.
+///
+/// its address range is `e000_0000..=0xffff_ffff`
+pub const KSEG3: VirtMemRegion = VirtMemRegion {
+    start: VirtAddr(0xe000_0000),
+    size: 0x20000000,
+};
+
+/// a memory region which is a concatenation of kseg2 and kseg3.
+///
+/// kseg2 and kseg3 are both mapped and cachable. the only difference between them is that kseg2 can also be
+/// accessed from supervisor mode, and not only from kernelmode.
+///
+/// but, we do not use supervisor mode in this kernel, so as far as we are concerened, these 2 regions have
+/// the exact same properties. so, we treat them as a single, continuous region.
+///
+/// its address range is `c000_0000..=0xffff_ffff`
+pub const KSEG23: VirtMemRegion = VirtMemRegion {
+    start: VirtAddr(0xc000_0000),
+    size: 0x40000000,
 };
 
 /// the base address of the exception vector.
