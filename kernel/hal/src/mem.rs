@@ -172,8 +172,12 @@ impl VirtMemRegion {
     /// returns the exclusive end address of the memory region.
     ///
     /// this may fail if the end address is too big to be represented as a `usize`.
-    pub const fn end(&self) -> Option<usize> {
-        self.inclusive_end.0.checked_add(1)
+    pub const fn end(&self) -> Option<VirtAddr> {
+        // this is written in this ugly way due to the constraints of writing code in a `const` context.
+        match self.inclusive_end.0.checked_add(1) {
+            Some(end_addr) => Some(VirtAddr(end_addr)),
+            None => None,
+        }
     }
 
     /// returns whether this memory region contains the byte at the given memory address
@@ -235,8 +239,12 @@ impl PhysMemRegion {
     /// returns the exclusive end address of the memory region.
     ///
     /// this may fail if the end address is too big to be represented as a `usize`.
-    pub const fn end(&self) -> Option<usize> {
-        self.inclusive_end.0.checked_add(1)
+    pub const fn end(&self) -> Option<PhysAddr> {
+        // this is written in this ugly way due to the constraints of writing code in a `const` context.
+        match self.inclusive_end.0.checked_add(1) {
+            Some(end_addr) => Some(PhysAddr(end_addr)),
+            None => None,
+        }
     }
 
     /// returns whether this memory region contains the given address
@@ -326,7 +334,12 @@ pub const EXCEPTION_VECTOR_PADDING: PhysMemRegion =
 /// we point the stack to the start of the physical address space right after the exception vector.
 /// the first 128MB at the start of the physical address space are all mapped to ram, so this ensures that our stack will use ram.
 pub const KERNEL_STACK: PhysMemRegion =
-    PhysMemRegion::new(EXCEPTION_VECTOR_PADDING.inclusive_end, 8 * 1024 * 1024);
+    PhysMemRegion::new(EXCEPTION_VECTOR_PADDING.end().unwrap(), 1 * 1024 * 1024);
+
+/// the physical address of the core kernel.
+///
+/// we put the kernel right after the stack.
+pub const KERNEL_CORE_ADDR: PhysAddr = KERNEL_STACK.end().unwrap();
 
 /// the physical address of the memory mapped mips revision register.
 pub const MIPS_REVISION_REG_ADDR: PhysAddr = PhysAddr(0x1FC00010);

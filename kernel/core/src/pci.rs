@@ -33,26 +33,29 @@ pub struct PciConfigAddr {
 /// a physical memory bump allocator, which allocates from the given physical memory region.
 pub struct PhysMemBumpAllocator {
     cur_addr: AtomicUsize,
-    end_addr: PhysAddr,
+    inclusive_end_addr: PhysAddr,
 }
 impl PhysMemBumpAllocator {
     pub const fn new(region: PhysMemRegion) -> Self {
         Self {
             cur_addr: AtomicUsize::new(region.start.0),
-            end_addr: region.end,
+            inclusive_end_addr: region.inclusive_end,
         }
     }
     pub fn alloc(&self, size: usize) -> Result<PhysAddr, PhysMemBumpAllocatorError> {
+        assert!(size > 0);
+
         let allocated_addr = self
             .cur_addr
             .fetch_add(size, core::sync::atomic::Ordering::Relaxed);
-        let end_addr = allocated_addr + size;
-        if end_addr <= self.end_addr.0 {
+
+        let inclusive_end_addr = allocated_addr + (size - 1);
+        if inclusive_end_addr <= self.inclusive_end_addr.0 {
             Ok(PhysAddr(allocated_addr))
         } else {
             Err(PhysMemBumpAllocatorError {
                 space_requested: HexDisplay(size),
-                space_left: HexDisplay(self.end_addr.0 - allocated_addr),
+                space_left: HexDisplay(self.inclusive_end_addr.0 - allocated_addr + 1),
             })
         }
     }

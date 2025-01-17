@@ -10,7 +10,7 @@ use core::{
 
 use hal::{
     cache_insn,
-    mem::{VirtAddr, KERNEL_STACK, KSEG0, KSEG1},
+    mem::{VirtAddr, KERNEL_CORE_ADDR, KERNEL_STACK, KSEG0, KSEG1},
     sys::{
         CacheConfig, CacheInsnOp, CacheInsnOperationType, CacheType, Cp0Reg, Cp0RegConfig0,
         Cp0RegConfig1, Cp0RegDTagLo, Cp0RegITagLo,
@@ -43,16 +43,23 @@ global_asm!(
     "nop",
     "after_hole:",
     // set up the stack pointer to point to the end of the stack.
-    // we are pointing to that physical address through kseg1, which is uncached, since cache is not yet initialized.
-    "li $sp, ({KSEG1_START} + {STACK_END})",
+    "li $sp, {STACK_END_VIRT_ADDR}",
     // jump to the rust entrypoint function
     "b loader_entrypoint",
     // put a nop in the delay slot of the branch
     "nop",
     // undo the `.section` directive that we used at the start.
     ".previous",
-    KSEG1_START = const { KSEG1.start.0 },
-    STACK_END = const { KERNEL_STACK.end.0 },
+    // a virtual address of the end of the stack.
+    // we use an uncachable address since cache is not yet initialized.
+    STACK_END_VIRT_ADDR = const {
+        KERNEL_STACK
+            .end()
+            .unwrap()
+            .kseg_uncachable_addr()
+            .unwrap()
+            .0
+    },
 );
 
 /// the entrypoint of the shellcode loader.
@@ -80,8 +87,7 @@ unsafe extern "C" fn loader_entrypoint() {
     // copy the wrapped kernel code from ROM to RAM so that we can relocate it.
     // put the kernel at a physical address which is right after the end of the stack.
     // use a cachable address since we want the kernel to be cached.
-    let kernel_dst_addr = KERNEL_STACK
-        .end
+    let kernel_dst_addr = KERNEL_CORE_ADDR
         .kseg_cachable_addr()
         .unwrap()
         .as_mut_ptr::<u8>();
