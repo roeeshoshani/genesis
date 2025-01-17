@@ -19,7 +19,7 @@ fn panic(info: &PanicInfo) -> ! {
 }
 
 #[no_mangle]
-extern "C" fn _start() {
+extern "C" fn _start() -> ! {
     uart_init();
     interrupts_init();
 
