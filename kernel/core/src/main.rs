@@ -7,6 +7,7 @@ use interrupts::{interrupts_disable, interrupts_enable, interrupts_init};
 use uart::{uart_init, uart_read_byte};
 
 pub mod interrupts;
+pub mod mm;
 pub mod pci;
 pub mod uart;
 pub mod utils;

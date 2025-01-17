@@ -92,28 +92,28 @@ impl VirtAddr {
     }
 
     /// returns the offset of this virtual address in kseg0, if it is in kseg0.
-    pub const fn kseg0_off(self) -> Option<usize> {
+    pub const fn kseg_cachable_off(self) -> Option<usize> {
         KSEG0.offset_of_addr(self)
     }
 
     /// returns the physical address of this virtual address in kseg0, if it is in kseg0.
-    pub const fn kseg0_phys_addr(self) -> Option<PhysAddr> {
+    pub const fn kseg_cachable_phys_addr(self) -> Option<PhysAddr> {
         // can't use `?` here since using it in const functions is not stable yet.
-        let Some(off) = self.kseg0_off() else {
+        let Some(off) = self.kseg_cachable_off() else {
             return None;
         };
         Some(PhysAddr(off))
     }
 
     /// returns the offset of this virtual address in kseg1, if it is in kseg1.
-    pub const fn kseg1_off(self) -> Option<usize> {
+    pub const fn kseg_uncachable_off(self) -> Option<usize> {
         KSEG1.offset_of_addr(self)
     }
 
     /// returns the physical address of this virtual address in kseg1, if it is in kseg1.
-    pub const fn kseg1_phys_addr(self) -> Option<PhysAddr> {
+    pub const fn kseg_uncachable_phys_addr(self) -> Option<PhysAddr> {
         // can't use `?` here since using it in const functions is not stable yet.
-        let Some(off) = self.kseg1_off() else {
+        let Some(off) = self.kseg_uncachable_off() else {
             return None;
         };
         Some(PhysAddr(off))
