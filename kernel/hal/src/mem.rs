@@ -162,6 +162,20 @@ impl VirtMemRegion {
         }
     }
 
+    /// returns the size of the memory region.
+    ///
+    /// this may fail if the size is too big to be represented as a `usize`.
+    pub const fn size(&self) -> Option<usize> {
+        (self.inclusive_end.0 - self.start.0).checked_add(1)
+    }
+
+    /// returns the exclusive end address of the memory region.
+    ///
+    /// this may fail if the end address is too big to be represented as a `usize`.
+    pub const fn end(&self) -> Option<usize> {
+        self.inclusive_end.0.checked_add(1)
+    }
+
     /// returns whether this memory region contains the byte at the given memory address
     pub const fn contains(&self, addr: VirtAddr) -> bool {
         addr.0 >= self.start.0 && addr.0 <= self.inclusive_end.0
@@ -195,26 +209,39 @@ pub struct PhysMemRegion {
     /// the start address of the region.
     pub start: PhysAddr,
 
-    /// the end address of the region.
-    pub end: PhysAddr,
+    /// the inclusive end address of the region.
+    ///
+    /// we use an inclusive end address instead of an exclusive one, since if we use an exclusive end address
+    /// we won't be able to represent memory regions that extend to the end of the address space, since their
+    /// exclusive end address can't be represented inside a pointer sized integer.
+    pub inclusive_end: PhysAddr,
 }
 impl PhysMemRegion {
     /// creates a new region with the given start address and size
     pub const fn new(start: PhysAddr, size: usize) -> Self {
         Self {
             start,
-            end: PhysAddr(start.0 + size),
+            inclusive_end: PhysAddr(start.0 + size - 1),
         }
     }
 
-    /// returns the size of the region
-    pub const fn size(&self) -> usize {
-        self.end.0 - self.start.0
+    /// returns the size of the memory region.
+    ///
+    /// this may fail if the size is too big to be represented as a `usize`.
+    pub const fn size(&self) -> Option<usize> {
+        (self.inclusive_end.0 - self.start.0).checked_add(1)
+    }
+
+    /// returns the exclusive end address of the memory region.
+    ///
+    /// this may fail if the end address is too big to be represented as a `usize`.
+    pub const fn end(&self) -> Option<usize> {
+        self.inclusive_end.0.checked_add(1)
     }
 
     /// returns whether this memory region contains the given address
     pub const fn contains(&self, addr: PhysAddr) -> bool {
-        addr.0 >= self.start.0 && addr.0 < self.end.0
+        addr.0 >= self.start.0 && addr.0 <= self.inclusive_end.0
     }
 
     /// returns the offset of the given address within this memory region, if the address is within this memory region.
@@ -227,14 +254,15 @@ impl PhysMemRegion {
 
     /// returns the address at the given offset from the start of the region if the offset is within the bounds of the region.
     pub const fn addr_at_offset(&self, offset: usize) -> Option<PhysAddr> {
-        if offset >= self.size() {
-            return None;
-        }
         // can't use `?` here since using it in const functions is not stable yet.
         let Some(addr) = self.start.0.checked_add(offset) else {
             return None;
         };
-        Some(PhysAddr(addr))
+        if addr <= self.inclusive_end.0 {
+            Some(PhysAddr(addr))
+        } else {
+            None
+        }
     }
 }
 
@@ -298,7 +326,7 @@ pub const EXCEPTION_VECTOR_PADDING: PhysMemRegion =
 /// we point the stack to the start of the physical address space right after the exception vector.
 /// the first 128MB at the start of the physical address space are all mapped to ram, so this ensures that our stack will use ram.
 pub const KERNEL_STACK: PhysMemRegion =
-    PhysMemRegion::new(EXCEPTION_VECTOR_PADDING.end, 8 * 1024 * 1024);
+    PhysMemRegion::new(EXCEPTION_VECTOR_PADDING.inclusive_end, 8 * 1024 * 1024);
 
 /// the physical address of the memory mapped mips revision register.
 pub const MIPS_REVISION_REG_ADDR: PhysAddr = PhysAddr(0x1FC00010);
@@ -314,7 +342,7 @@ pub const MIPS_REVISION_REG_ADDR: PhysAddr = PhysAddr(0x1FC00010);
 /// default memory region addresses.
 pub const PCI_0_MEM: PhysMemRegion = PhysMemRegion {
     start: PhysAddr(0x12000000),
-    end: PhysAddr(0x14000000),
+    inclusive_end: PhysAddr(0x14000000),
 };
 
 /// the physical memory region which represents the memory mapped region which provides access to the PCI IO
@@ -328,5 +356,5 @@ pub const PCI_0_MEM: PhysMemRegion = PhysMemRegion {
 /// default memory region addresses.
 pub const PCI_0_IO: PhysMemRegion = PhysMemRegion {
     start: PhysAddr(0x10000000),
-    end: PhysAddr(0x12000000),
+    inclusive_end: PhysAddr(0x12000000),
 };
