@@ -349,7 +349,7 @@ fn piix4_timer_init() {
     Piix4IoRegs::timer_control().write(
         Piix4TimerControlRegularCmd::from_fields(Piix4TimerControlRegularCmdFields {
             countdown_kind: Piix4CountdownKind::BinaryCountdown,
-            counter_mode: Piix4CounterMode::HardwareTriggeredStrobe,
+            counter_mode: Piix4CounterMode::RateGenerator,
             rw_select: Piix4TimerRwSelect::RwLsbThenMsb,
             counter_select: Piix4CounterSelect::Counter0,
         })
@@ -357,30 +357,6 @@ fn piix4_timer_init() {
     );
     Piix4IoRegs::counter_0().write(u8::MAX);
     Piix4IoRegs::counter_0().write(u8::MAX);
-
-    Piix4IoRegs::timer_control().write(
-        Piix4TimerControlRegularCmd::from_fields(Piix4TimerControlRegularCmdFields {
-            countdown_kind: Piix4CountdownKind::BinaryCountdown,
-            counter_mode: Piix4CounterMode::HardwareTriggeredStrobe,
-            rw_select: Piix4TimerRwSelect::RwLsbThenMsb,
-            counter_select: Piix4CounterSelect::Counter1,
-        })
-        .to_bits(),
-    );
-    Piix4IoRegs::counter_1().write(u8::MAX);
-    Piix4IoRegs::counter_1().write(u8::MAX);
-
-    Piix4IoRegs::timer_control().write(
-        Piix4TimerControlRegularCmd::from_fields(Piix4TimerControlRegularCmdFields {
-            countdown_kind: Piix4CountdownKind::BinaryCountdown,
-            counter_mode: Piix4CounterMode::HardwareTriggeredStrobe,
-            rw_select: Piix4TimerRwSelect::RwLsbThenMsb,
-            counter_select: Piix4CounterSelect::Counter2,
-        })
-        .to_bits(),
-    );
-    Piix4IoRegs::counter_2().write(u8::MAX);
-    Piix4IoRegs::counter_2().write(u8::MAX);
 }
 
 pub struct I8259Dev {
