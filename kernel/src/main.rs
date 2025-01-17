@@ -78,6 +78,9 @@ fn run() -> Result<()> {
         // use the malta machine
         "-M",
         "malta",
+        // use the 24kc cpu
+        "-cpu",
+        "24Kc",
         // the malta FPGA UART serial uses the third serial port, and we don't really care about the first two serial ports,
         // so ignore them.
         "-serial",
