@@ -146,18 +146,25 @@ pub struct VirtMemRegion {
     /// the start address of the region.
     pub start: VirtAddr,
 
-    /// the size of the region.
-    pub size: usize,
+    /// the inclusive end address of the region.
+    ///
+    /// we use an inclusive end address instead of an exclusive one, since if we use an exclusive end address
+    /// we won't be able to represent memory regions that extend to the end of the address space, since their
+    /// exclusive end address can't be represented inside a pointer sized integer.
+    pub inclusive_end: VirtAddr,
 }
 impl VirtMemRegion {
     /// creates a new region with the given start address and size
     pub const fn new(start: VirtAddr, size: usize) -> Self {
-        Self { start, size }
+        Self {
+            start,
+            inclusive_end: VirtAddr(start.0 + size - 1),
+        }
     }
 
     /// returns whether this memory region contains the byte at the given memory address
     pub const fn contains(&self, addr: VirtAddr) -> bool {
-        (addr.0 >= self.start.0) && (addr.0 - self.start.0) < self.size
+        addr.0 >= self.start.0 && addr.0 <= self.inclusive_end.0
     }
 
     /// returns the offset of the given address within this memory region, if the address is within this memory region.
@@ -170,14 +177,15 @@ impl VirtMemRegion {
 
     /// returns the address at the given offset from the start of the region if the offset is within the bounds of the region.
     pub const fn addr_at_offset(&self, offset: usize) -> Option<VirtAddr> {
-        if offset >= self.size {
-            return None;
-        }
         // can't use `?` here since using it in const functions is not stable yet.
         let Some(addr) = self.start.0.checked_add(offset) else {
             return None;
         };
-        Some(VirtAddr(addr))
+        if addr <= self.inclusive_end.0 {
+            Some(VirtAddr(addr))
+        } else {
+            None
+        }
     }
 }
 
@@ -231,43 +239,33 @@ impl PhysMemRegion {
 }
 
 /// the kuseg memory region. this is a mapped and cacheable memory region accessible from usermode.
-///
-/// its address range is `0x0000_0000..0x8000_0000`
 pub const KUSEG: VirtMemRegion = VirtMemRegion {
     start: VirtAddr(0x0000_0000),
-    size: 0x8000_0000,
+    inclusive_end: VirtAddr(0x7fff_ffff),
 };
 
 /// the kseg0 memory region. this is an unmapped and cacheable memory region.
-///
-/// its address range is `0x8000_0000..0xa000_0000`
 pub const KSEG0: VirtMemRegion = VirtMemRegion {
     start: VirtAddr(0x8000_0000),
-    size: 0x20000000,
+    inclusive_end: VirtAddr(0x9fff_ffff),
 };
 
 /// the kseg1 memory region. this is an unmapped and uncached memory region.
-///
-/// its address range is `0xa000_0000..0xc000_0000`
 pub const KSEG1: VirtMemRegion = VirtMemRegion {
     start: VirtAddr(0xa000_0000),
-    size: 0x20000000,
+    inclusive_end: VirtAddr(0xbfff_ffff),
 };
 
 /// the kseg2 memory region. this is a mapped and cacheable memory region accessible from supervisor mode.
-///
-/// its address range is `0xc000_0000..0xe000_0000`
 pub const KSEG2: VirtMemRegion = VirtMemRegion {
     start: VirtAddr(0xc000_0000),
-    size: 0x20000000,
+    inclusive_end: VirtAddr(0xdfff_ffff),
 };
 
 /// the kseg3 memory region. this is a mapped and cacheable memory region.
-///
-/// its address range is `e000_0000..=0xffff_ffff`
 pub const KSEG3: VirtMemRegion = VirtMemRegion {
     start: VirtAddr(0xe000_0000),
-    size: 0x20000000,
+    inclusive_end: VirtAddr(0xffff_ffff),
 };
 
 /// a memory region which is a concatenation of kseg2 and kseg3.
@@ -277,11 +275,9 @@ pub const KSEG3: VirtMemRegion = VirtMemRegion {
 ///
 /// but, we do not use supervisor mode in this kernel, so as far as we are concerened, these 2 regions have
 /// the exact same properties. so, we treat them as a single, continuous region.
-///
-/// its address range is `c000_0000..=0xffff_ffff`
 pub const KSEG23: VirtMemRegion = VirtMemRegion {
     start: VirtAddr(0xc000_0000),
-    size: 0x40000000,
+    inclusive_end: VirtAddr(0xffff_ffff),
 };
 
 /// the base address of the exception vector.
