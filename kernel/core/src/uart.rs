@@ -1,23 +1,25 @@
 use bitpiece::*;
 use hal::mmio::uart::*;
 
+/// sets the state of the divisor latch access
 fn uart_set_divisor_latch_access(value: bool) {
     let mut line_control_value = UartRegs::line_control().read();
     line_control_value.set_enable_divisor_latch_access(value);
     UartRegs::line_control().write(line_control_value);
 }
 
+/// sets the uart baud rate divisor.
+///
+/// NOTE: the divisor latch access must be enabled before calling this function.
 fn uart_set_baud_rate_divisor(divisor: u16) {
     let [divisor_lsb, divisor_msb] = divisor.to_le_bytes();
 
-    uart_set_divisor_latch_access(true);
     UartRegs::divisor_latch_lsb().write(divisor_lsb);
     UartRegs::divisor_latch_msb().write(divisor_msb);
-    uart_set_divisor_latch_access(false);
 }
 
 pub fn uart_init() {
-    // disable divisor latch access. the default state of the UART is expected to have the divisor latch access disabled.
+    // disable divisor latch access so that we can access the regular registers of the uart.
     uart_set_divisor_latch_access(false);
 
     // disable interrupts to use polled mode
@@ -42,7 +44,9 @@ pub fn uart_init() {
     }));
 
     // set the divisor to 1 to use a baud rate equal to the clock rate
+    uart_set_divisor_latch_access(true);
     uart_set_baud_rate_divisor(1);
+    uart_set_divisor_latch_access(false);
 
     // configure the line parameters to use 8 bit words, one stip bit, and not parity
     UartRegs::line_control().write(UartLineControlReg::from_fields(UartLineControlRegFields {
