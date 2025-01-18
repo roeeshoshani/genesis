@@ -19,14 +19,21 @@ fn panic(info: &PanicInfo) -> ! {
     loop {}
 }
 
+/// a main loop for testing the uart functionality.
+fn test_uart_main_loop() -> ! {
+    loop {
+        let byte = uart_read_byte();
+        println!("received byte: {}", byte);
+    }
+}
+
 #[no_mangle]
 extern "C" fn _start() -> ! {
     uart_init();
     interrupts_init();
 
+    // done initializing, enable interrupts
     interrupts_enable();
-    loop {
-        let byte = uart_read_byte();
-        println!("received byte: {}", byte);
-    }
+
+    test_uart_main_loop()
 }
