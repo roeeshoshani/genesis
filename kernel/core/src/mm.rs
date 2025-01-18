@@ -3,7 +3,9 @@ use core::{
     ptr::{addr_of_mut, NonNull},
 };
 
-use hal::mem::{PhysAddr, PhysMemRegion, VirtAddr, KERNEL_CORE_ADDR};
+use hal::mem::{PhysAddr, PhysMemRegion, VirtAddr, KERNEL_CORE_ADDR, RAM_0};
+
+use crate::sync::IrqSpinlock;
 
 extern "C" {
     /// a pointer to the end of the kernel.
@@ -52,7 +54,7 @@ pub struct PageAllocator {
 }
 impl PageAllocator {
     /// creates a new empty page allocator.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { freelist: None }
     }
 
@@ -92,6 +94,10 @@ impl PageAllocator {
         }
     }
 
+    /// allocate the given number of pages
+    ///
+    /// # safety
+    /// the pages must be deallocated once you finish using them
     pub unsafe fn alloc(&mut self, pages_amount: usize) -> Option<PhysAddr> {
         let mut cursor = self.cursor();
 
@@ -258,6 +264,9 @@ impl PageAllocator {
     }
 }
 
+unsafe impl Sync for PageAllocator {}
+unsafe impl Send for PageAllocator {}
+
 struct ChosenChunk<'a> {
     snapshot: ChunkCursorSnapshot<'a>,
     page_size: usize,
@@ -370,3 +379,46 @@ struct ChunkHdr {
 
 /// the link of a chunk, which is a pointer to the next chunk in the linked list of free chunks.
 type ChunkLink = Option<NonNull<ChunkHdr>>;
+
+static PAGE_ALLOCATOR: IrqSpinlock<PageAllocator> = IrqSpinlock::new(PageAllocator::new());
+
+/// initializes the page allocator.
+pub fn page_allocator_init() {
+    let mut allocator = PAGE_ALLOCATOR.lock();
+    unsafe {
+        // SAFETY: this memory region is unused
+        allocator.add_region(PhysMemRegion {
+            start: kernel_end_phys(),
+            inclusive_end: RAM_0.inclusive_end,
+        });
+    }
+}
+
+pub fn alloc_pages(pages_amount: usize) -> Option<Pages> {
+    let mut allocator = PAGE_ALLOCATOR.lock();
+    let addr = unsafe {
+        // SAFETY: the pages will be deallocated when the returned object is dropped
+        allocator.alloc(pages_amount)
+    }?;
+    Some(Pages { addr, pages_amount })
+}
+
+pub struct Pages {
+    addr: PhysAddr,
+    pages_amount: usize,
+}
+impl Pages {
+    pub fn addr(&self) -> PhysAddr {
+        self.addr
+    }
+}
+
+impl Drop for Pages {
+    fn drop(&mut self) {
+        let mut allocator = PAGE_ALLOCATOR.lock();
+        unsafe {
+            // SAFETY: these pages were previously allocated using the same allocator.
+            allocator.dealloc(self.addr, self.pages_amount)
+        };
+    }
+}

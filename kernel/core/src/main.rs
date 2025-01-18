@@ -5,12 +5,13 @@
 use core::panic::PanicInfo;
 use hal::mem::{PhysMemRegion, RAM_0};
 use interrupts::{interrupts_disable, interrupts_enable, interrupts_init};
-use mm::{kernel_end_phys, PageAllocator};
+use mm::{alloc_pages, kernel_end_phys, page_allocator_init, PageAllocator};
 use uart::{uart_init, uart_read_byte};
 
 pub mod interrupts;
 pub mod mm;
 pub mod pci;
+pub mod sync;
 pub mod uart;
 pub mod utils;
 
@@ -23,20 +24,6 @@ fn panic(info: &PanicInfo) -> ! {
 
 /// a main loop for testing the uart functionality.
 fn test_uart_main_loop() -> ! {
-    println!(
-        "setting up allocator from {:x} to {:x}",
-        kernel_end_phys().0,
-        RAM_0.inclusive_end.0
-    );
-    let mut allocator = PageAllocator::new();
-    unsafe {
-        // SAFETY: this memory region is unused
-        allocator.add_region(PhysMemRegion {
-            start: kernel_end_phys(),
-            inclusive_end: RAM_0.inclusive_end,
-        });
-    }
-
     loop {
         let byte = uart_read_byte();
         println!("received byte: {}", byte);
@@ -47,9 +34,13 @@ fn test_uart_main_loop() -> ! {
 extern "C" fn _start() -> ! {
     uart_init();
     interrupts_init();
+    page_allocator_init();
 
     // done initializing, enable interrupts
     interrupts_enable();
+
+    let pages = alloc_pages(4).unwrap();
+    println!("{:x}", pages.addr().0);
 
     test_uart_main_loop()
 }

@@ -72,7 +72,7 @@ pub fn interrupts_enable() {
 
 macro_rules! with_interrupts_disabled {
     {$($t:tt)*} => {{
-        let _ = $crate::interrupts::InterruptsDisabledGuard::new();
+        let _interrupts_disabled_guard = $crate::interrupts::InterruptsDisabledGuard::new();
         $($t)*
     }};
 }
