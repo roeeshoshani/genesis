@@ -5,20 +5,28 @@ use core::{
 
 use hal::mem::{PhysAddr, PhysMemRegion, VirtAddr, KERNEL_CORE_ADDR};
 
+use crate::println;
+
 extern "C" {
     /// a pointer to the end of the kernel.
     static mut END_OF_CODE: u8;
 }
 
+/// returns the virtual end address of the kernel
+pub fn kernel_end_virt() -> VirtAddr {
+    VirtAddr(addr_of_mut!(END_OF_CODE) as usize)
+}
+
+/// returns the physical end address of the kernel
+pub fn kernel_end_phys() -> PhysAddr {
+    // the kernel is running in the kseg cachable memory region, based on that we can calculate its physical address
+    kernel_end_virt().kseg_cachable_phys_addr().unwrap()
+}
+
 /// returns the size in bytes that the core kernel takes up in memory.
 pub fn kernel_size() -> usize {
-    let end_of_code_virt_addr = VirtAddr(addr_of_mut!(END_OF_CODE) as usize);
-
-    // the kernel is running in the kseg cachable memory region, based on that we can calculate its physical address
-    let end_of_code_phys_addr = end_of_code_virt_addr.kseg_cachable_phys_addr().unwrap();
-
     // calculate the diff between the end of code and the kernel start to get the size
-    end_of_code_phys_addr.0 - KERNEL_CORE_ADDR.0
+    kernel_end_phys().0 - KERNEL_CORE_ADDR.0
 }
 
 /// the size of a single page.
@@ -105,27 +113,25 @@ impl PageAllocator {
                 break;
             };
 
-            if chunk_mut.chunk.pages_amount < pages_amount {
-                // chunk is too small to satisfy allocation
-                continue;
-            }
-
-            match &cur_best_chunk {
-                Some(best_chunk) => {
-                    // if the current chunk is smaller than the current best, then use it instead.
-                    // we want to find the smallest chunk that can satisfy this allocation.
-                    if chunk_mut.chunk.pages_amount < best_chunk.page_size {
+            // make sure that the chunk is big enough to satisfy this allocation
+            if chunk_mut.chunk.pages_amount >= pages_amount {
+                match &cur_best_chunk {
+                    Some(best_chunk) => {
+                        // if the current chunk is smaller than the current best, then use it instead.
+                        // we want to find the smallest chunk that can satisfy this allocation.
+                        if chunk_mut.chunk.pages_amount < best_chunk.page_size {
+                            cur_best_chunk = Some(ChosenChunk {
+                                page_size: chunk_mut.chunk.pages_amount,
+                                snapshot: cursor.snapshot(),
+                            })
+                        }
+                    }
+                    None => {
                         cur_best_chunk = Some(ChosenChunk {
                             page_size: chunk_mut.chunk.pages_amount,
                             snapshot: cursor.snapshot(),
                         })
                     }
-                }
-                None => {
-                    cur_best_chunk = Some(ChosenChunk {
-                        page_size: chunk_mut.chunk.pages_amount,
-                        snapshot: cursor.snapshot(),
-                    })
                 }
             }
 

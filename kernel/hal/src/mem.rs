@@ -371,3 +371,9 @@ pub const PCI_0_IO: PhysMemRegion = PhysMemRegion {
     start: PhysAddr(0x10000000),
     inclusive_end: PhysAddr(0x12000000),
 };
+
+/// the first region of RAM in the physical address space
+pub const RAM_0: PhysMemRegion = PhysMemRegion {
+    start: PhysAddr(0),
+    inclusive_end: PhysAddr(0x01ff_ffff),
+};
