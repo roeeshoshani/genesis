@@ -7,7 +7,7 @@ use hw::{
     interrupts::{interrupts_disable, interrupts_enable, interrupts_init, wait_for_interrupt},
     uart::{uart_init, uart_init_interrupts},
 };
-use mem::page_allocator_init;
+use mem::page_alloc::page_allocator_init;
 
 pub mod hw;
 pub mod mem;
