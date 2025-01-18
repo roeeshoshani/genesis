@@ -1,5 +1,8 @@
 use bitpiece::*;
-use hal::mmio::uart::*;
+use hal::{
+    mmio::uart::*,
+    sys::{Cp0Reg, Cp0RegStatus},
+};
 
 /// sets the state of the divisor latch access
 fn uart_set_divisor_latch_access(value: bool) {
@@ -18,14 +21,16 @@ fn uart_set_baud_rate_divisor(divisor: u16) {
     UartRegs::divisor_latch_msb().write(divisor_msb);
 }
 
+/// initializes the uart. this function has no pre-requisites and can be called at any point.
 pub fn uart_init() {
     // disable divisor latch access so that we can access the regular registers of the uart.
     uart_set_divisor_latch_access(false);
 
-    // disable interrupts to use polled mode
+    // for tx, disable interrupts to use polled mode, so that we can write from interrupt context
+    // for rx, use interrupts so that we don't have to busy poll for input
     UartRegs::interrupt_enable().write(UartInterruptEnableReg::from_fields(
         UartInterruptEnableRegFields {
-            is_received_data_available_interrupt_enabled: false,
+            is_received_data_available_interrupt_enabled: true,
             is_transmitter_holding_register_empty_interrupt_enabled: false,
             is_receiver_line_status_interrupt_enabled: false,
             is_modem_status_interrupt_enabled: false,
@@ -48,7 +53,7 @@ pub fn uart_init() {
     uart_set_baud_rate_divisor(1);
     uart_set_divisor_latch_access(false);
 
-    // configure the line parameters to use 8 bit words, one stip bit, and not parity
+    // configure the line parameters to use 8 bit words, one stop bit, and no parity
     UartRegs::line_control().write(UartLineControlReg::from_fields(UartLineControlRegFields {
         word_length: UartWordLength::L8,
         use_extra_stop_bits: false,
@@ -60,11 +65,24 @@ pub fn uart_init() {
     }));
 }
 
-pub fn uart_read_byte() -> u8 {
-    while !UartRegs::line_status().read().is_data_ready() {}
-    UartRegs::rx().read()
+/// initializes the uart interrupts logic. this function requires that interrupts are initialized.
+pub fn uart_init_interrupts() {
+    // enable the uart interrupts
+    let mut status = Cp0RegStatus::read();
+    status.interrupt_mask_mut().set_tty2(true);
+    Cp0RegStatus::write(status);
 }
 
+/// tries to read a single byte of input from the uart. return `None` if there is not input byte currently available.
+pub fn uart_try_read_byte() -> Option<u8> {
+    if UartRegs::line_status().read().is_data_ready() {
+        Some(UartRegs::rx().read())
+    } else {
+        None
+    }
+}
+
+/// writes a single byte to the uart.
 fn uart_write_byte(byte: u8) {
     while !UartRegs::line_status()
         .read()

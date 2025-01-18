@@ -2,12 +2,12 @@
 #![no_main]
 #![feature(asm_experimental_arch)]
 
-use core::{arch::asm, panic::PanicInfo};
+use core::panic::PanicInfo;
 use hw::{
     interrupts::{interrupts_disable, interrupts_enable, interrupts_init, wait_for_interrupt},
-    uart::{uart_init, uart_read_byte},
+    uart::{uart_init, uart_init_interrupts},
 };
-use mem::{alloc_pages, page_allocator_init};
+use mem::page_allocator_init;
 
 pub mod hw;
 pub mod mem;
@@ -23,8 +23,16 @@ fn panic(info: &PanicInfo) -> ! {
 
 #[no_mangle]
 extern "C" fn _start() -> ! {
+    // initialize the uart. this will allow us to print to the serial console very early on.
     uart_init();
+
+    // initialize the interrupt management logic
     interrupts_init();
+
+    // initialize the uart interrupt management logic
+    uart_init_interrupts();
+
+    // initialize the page allocator
     page_allocator_init();
 
     // done initializing, enable interrupts
