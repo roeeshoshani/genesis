@@ -38,8 +38,5 @@ extern "C" fn _start() -> ! {
     // done initializing, enable interrupts
     interrupts_enable();
 
-    let pages = alloc_pages(4).unwrap();
-    println!("{:x}", pages.addr().0);
-
     test_uart_main_loop()
 }
