@@ -90,7 +90,7 @@ impl core::fmt::Write for UartWriter {
 
 #[macro_export]
 macro_rules! print {
-    ($($arg:tt)*) => ($crate::uart::_print(format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::hw::uart::_print(format_args!($($arg)*)));
 }
 
 #[macro_export]

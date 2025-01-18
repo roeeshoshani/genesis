@@ -1,6 +1,6 @@
 use core::ops::{Deref, DerefMut};
 
-use crate::interrupts::InterruptsDisabledGuard;
+use crate::hw::interrupts::InterruptsDisabledGuard;
 
 pub struct IrqSpinlock<T>(spin::mutex::SpinMutex<T>);
 impl<T> IrqSpinlock<T> {

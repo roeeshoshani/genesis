@@ -8,7 +8,7 @@ use hal::{
 };
 use thiserror_no_std::Error;
 
-use crate::{interrupts::with_interrupts_disabled, utils::HexDisplay};
+use crate::{hw::interrupts::with_interrupts_disabled, utils::HexDisplay};
 
 /// the maximum amount of BARs that a single function may have.
 const PCI_MAX_BARS: usize = 6;

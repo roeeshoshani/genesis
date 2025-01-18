@@ -3,16 +3,15 @@
 #![feature(asm_experimental_arch)]
 
 use core::panic::PanicInfo;
-use hal::mem::{PhysMemRegion, RAM_0};
-use interrupts::{interrupts_disable, interrupts_enable, interrupts_init};
-use mem::{alloc_pages, kernel_end_phys, page_allocator_init, PageAllocator};
-use uart::{uart_init, uart_read_byte};
+use hw::{
+    interrupts::{interrupts_disable, interrupts_enable, interrupts_init},
+    uart::{uart_init, uart_read_byte},
+};
+use mem::{alloc_pages, page_allocator_init};
 
-pub mod interrupts;
+pub mod hw;
 pub mod mem;
-pub mod pci;
 pub mod sync;
-pub mod uart;
 pub mod utils;
 
 #[panic_handler]
