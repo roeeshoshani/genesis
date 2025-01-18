@@ -303,22 +303,8 @@ fn init_cp0_status() {
     // don't use the bootstrap exception vectors, use the normal ones
     status.set_use_bootstrap_exception_vectors(false);
 
-    // enable all interrupts, except for the tty2 UART interrupts.
-    //
-    // qemu's implementation of the the tty2 UART device generates interrupts requests to the cpu even when we configure
-    // it to not use interrupts.
-    //
-    // we need to be able to write to the UART without generating interrupts, because we want to write to it inside our interrupt handler,
-    // and this can generate an infinite interrupt loop.
-    //
-    // so, we mask this interrupt out.
-    let mut interrupt_enable_mask = InterruptBitmap::ones();
-    interrupt_enable_mask.set_tty2(false);
-    // NOTE: i currently disable the timer interrupt just so that it is easier for me to work with the PIIX4 interrupts to understand
-    // how they work.
-    // TODO: remove this to re-enable the timer interrupt
-    interrupt_enable_mask.set_timer(false);
-    status.set_interrupt_mask(interrupt_enable_mask);
+    // disable all interrupts. specific interrupts should be enabled on demand.
+    status.set_interrupt_mask(InterruptBitmap::zeroes());
 
     // initialize the operating mode properly
     status.set_operating_mode(OperatingMode::KernelMode);
@@ -343,20 +329,6 @@ fn init_cp0_cause() {
     cause.set_use_special_interrupt_vector(false);
 
     Cp0RegCause::write(cause);
-}
-
-fn piix4_timer_init() {
-    Piix4IoRegs::timer_control().write(
-        Piix4TimerControlRegularCmd::from_fields(Piix4TimerControlRegularCmdFields {
-            countdown_kind: Piix4CountdownKind::BinaryCountdown,
-            counter_mode: Piix4CounterMode::RateGenerator,
-            rw_select: Piix4TimerRwSelect::RwLsbThenMsb,
-            counter_select: Piix4CounterSelect::Counter0,
-        })
-        .to_bits(),
-    );
-    Piix4IoRegs::counter_0().write(u8::MAX);
-    Piix4IoRegs::counter_0().write(u8::MAX);
 }
 
 pub struct I8259Dev {
@@ -531,12 +503,17 @@ pub const PIIX4_I8259_CHAIN: I8259Chain = I8259Chain {
 
 fn i8259_init() {
     PIIX4_I8259_CHAIN.init();
+
+    // enable receiving interrupts from the piix4 intr line, which is connected to the output pin of the master i8259 device,
+    // to allow receiving interrupts from the i8259.
+    let mut status = Cp0RegStatus::read();
+    status.interrupt_mask_mut().set_piix4_intr(true);
+    Cp0RegStatus::write(status);
 }
 
 pub fn interrupts_init() {
     write_general_exception_vector_sub();
     init_cp0_status();
     init_cp0_cause();
-    piix4_timer_init();
     i8259_init();
 }

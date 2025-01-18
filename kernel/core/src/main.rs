@@ -3,11 +3,10 @@
 #![feature(asm_experimental_arch)]
 
 use core::panic::PanicInfo;
-use hal::mem::{PhysMemRegion, PCI_0_IO, RAM_0};
+use hal::mem::{PhysMemRegion, RAM_0};
 use interrupts::{interrupts_disable, interrupts_enable, interrupts_init};
-use mm::{kernel_end_phys, kernel_size, PageAllocator};
+use mm::{kernel_end_phys, PageAllocator};
 use uart::{uart_init, uart_read_byte};
-use utils::HexDisplay;
 
 pub mod interrupts;
 pub mod mm;

@@ -5,8 +5,6 @@ use core::{
 
 use hal::mem::{PhysAddr, PhysMemRegion, VirtAddr, KERNEL_CORE_ADDR};
 
-use crate::println;
-
 extern "C" {
     /// a pointer to the end of the kernel.
     static mut END_OF_CODE: u8;
@@ -53,6 +51,7 @@ pub struct PageAllocator {
     freelist: ChunkLink,
 }
 impl PageAllocator {
+    /// creates a new empty page allocator.
     pub fn new() -> Self {
         Self { freelist: None }
     }
