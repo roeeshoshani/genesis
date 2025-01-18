@@ -1,6 +1,25 @@
-use core::{marker::PhantomData, ptr::NonNull};
+use core::{
+    marker::PhantomData,
+    ptr::{addr_of_mut, NonNull},
+};
 
-use hal::mem::{PhysAddr, PhysMemRegion, VirtAddr};
+use hal::mem::{PhysAddr, PhysMemRegion, VirtAddr, KERNEL_CORE_ADDR};
+
+extern "C" {
+    /// a pointer to the end of the kernel.
+    static mut END_OF_CODE: u8;
+}
+
+/// returns the size in bytes that the core kernel takes up in memory.
+pub fn kernel_size() -> usize {
+    let end_of_code_virt_addr = VirtAddr(addr_of_mut!(END_OF_CODE) as usize);
+
+    // the kernel is running in the kseg cachable memory region, based on that we can calculate its physical address
+    let end_of_code_phys_addr = end_of_code_virt_addr.kseg_cachable_phys_addr().unwrap();
+
+    // calculate the diff between the end of code and the kernel start to get the size
+    end_of_code_phys_addr.0 - KERNEL_CORE_ADDR.0
+}
 
 /// the size of a single page.
 ///

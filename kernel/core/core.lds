@@ -15,6 +15,8 @@ SECTIONS
     .sbss : { *(.sbss*) } : all
     .bss : { *(.bss*) } : all
 
+    END_OF_CODE = .;
+
     .MIPS.abiflags : { *(.MIPS.abiflags) } : trash
     .reginfo : { *(.reginfo) } : trash
     .dynsym : { *(.dynsym) } : trash
