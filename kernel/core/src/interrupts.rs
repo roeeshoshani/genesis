@@ -416,6 +416,24 @@ impl I8259Dev {
             })
             .to_bits(),
         );
+
+        // mask all interrupts
+        self.set_mask(0xff);
+    }
+
+    pub fn set_mask(&self, mut mask: u8) {
+        // when masking interrupts on the master, we don't want to mask irq2, since this is the irq on which the slave is connected.
+        // masking slave interrupts should be done by writing the slave's interrupt mask, not by masking the slave from the parent.
+        if self.is_master {
+            mask &= !(1 << 2)
+        }
+
+        // reads/writes to the data register by default apply to the IMR (interrupt mask register).
+        self.data_reg.write(mask);
+    }
+
+    pub fn get_mask(&self) -> u8 {
+        self.data_reg.read()
     }
 
     fn read_op3_reg(&self, reg_read_cmd: I8259RegReadCmd) -> u8 {
@@ -462,12 +480,32 @@ impl I8259Chain {
         self.master.init();
         self.slave.init();
     }
+
+    fn merge_slave_master_reg(master_reg_val: u8, slave_reg_val: u8) -> u16 {
+        master_reg_val as u16 | ((slave_reg_val as u16) << 8)
+    }
+
+    /// returns a tuple of `(master, slave)` register values
+    fn split_slave_master_reg(reg_val: u16) -> (u8, u8) {
+        ((reg_val & 0xff) as u8, ((reg_val >> 8) & 0xff) as u8)
+    }
+
     pub fn read_irr(&self) -> u16 {
-        self.master.read_irr() as u16 | ((self.slave.read_irr() as u16) << 8)
+        Self::merge_slave_master_reg(self.master.read_irr(), self.slave.read_irr())
     }
     pub fn read_isr(&self) -> u16 {
-        self.master.read_isr() as u16 | ((self.slave.read_isr() as u16) << 8)
+        Self::merge_slave_master_reg(self.master.read_isr(), self.slave.read_isr())
     }
+
+    pub fn set_mask(&self, mask: u16) {
+        let (master_mask, slave_mask) = Self::split_slave_master_reg(mask);
+        self.master.set_mask(master_mask);
+        self.slave.set_mask(slave_mask);
+    }
+    pub fn get_mask(&self) -> u16 {
+        Self::merge_slave_master_reg(self.master.get_mask(), self.slave.get_mask())
+    }
+
     pub fn eoi(&self) {
         // TODO: do we always want to do an EOI on the slave here? no we don't... but for that we need to know which irq line
         // the interrupt was received on, which i currently have no idea how to do.
