@@ -29,15 +29,13 @@ fn test_uart_main_loop() -> ! {
         kernel_end_phys().0,
         RAM_0.inclusive_end.0
     );
-    let mut allocator = PageAllocator::new(PhysMemRegion {
-        start: kernel_end_phys(),
-        inclusive_end: RAM_0.inclusive_end,
-    });
-
-    for _ in 0..100000 {
-        println!("allocating");
-        let addr = allocator.alloc(100).unwrap();
-        println!("allocated at: {:x}", addr.0);
+    let mut allocator = PageAllocator::new();
+    unsafe {
+        // SAFETY: this memory region is unused
+        allocator.add_region(PhysMemRegion {
+            start: kernel_end_phys(),
+            inclusive_end: RAM_0.inclusive_end,
+        });
     }
 
     loop {
