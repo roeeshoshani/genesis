@@ -4,6 +4,36 @@ use hal::{
     sys::{Cp0Reg, Cp0RegStatus},
 };
 
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => ($crate::hw::uart::_print(format_args!($($arg)*)));
+}
+
+#[macro_export]
+macro_rules! println {
+    () => ($crate::print!("\n"));
+    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
+}
+
+#[macro_export]
+macro_rules! dbg {
+    () => {
+        $crate::println!("[{}:{}:{}]", file!(), line!(), column!())
+    };
+    ($val:expr $(,)?) => {
+        match $val {
+            tmp => {
+                $crate::println!("[{}:{}:{}] {} = {:#?}",
+                    file!(), line!(), column!(), stringify!($val), &tmp);
+                tmp
+            }
+        }
+    };
+    ($($val:expr),+ $(,)?) => {
+        ($($crate::dbg!($val)),+,)
+    };
+}
+
 /// sets the state of the divisor latch access
 fn uart_set_divisor_latch_access(value: bool) {
     let mut line_control_value = UartRegs::line_control().read();
@@ -82,6 +112,12 @@ pub fn uart_try_read_byte() -> Option<u8> {
     }
 }
 
+pub fn uart_interrupt_handler() {
+    while let Some(byte) = uart_try_read_byte() {
+        println!("uart received byte: {:?}", byte);
+    }
+}
+
 /// writes a single byte to the uart.
 fn uart_write_byte(byte: u8) {
     while !UartRegs::line_status()
@@ -104,36 +140,6 @@ impl core::fmt::Write for UartWriter {
         }
         Ok(())
     }
-}
-
-#[macro_export]
-macro_rules! print {
-    ($($arg:tt)*) => ($crate::hw::uart::_print(format_args!($($arg)*)));
-}
-
-#[macro_export]
-macro_rules! println {
-    () => ($crate::print!("\n"));
-    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
-}
-
-#[macro_export]
-macro_rules! dbg {
-    () => {
-        $crate::println!("[{}:{}:{}]", file!(), line!(), column!())
-    };
-    ($val:expr $(,)?) => {
-        match $val {
-            tmp => {
-                $crate::println!("[{}:{}:{}] {} = {:#?}",
-                    file!(), line!(), column!(), stringify!($val), &tmp);
-                tmp
-            }
-        }
-    };
-    ($($val:expr),+ $(,)?) => {
-        ($($crate::dbg!($val)),+,)
-    };
 }
 
 #[doc(hidden)]

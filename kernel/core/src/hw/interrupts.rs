@@ -12,7 +12,7 @@ use hal::{
 };
 use volatile::VolatilePtr;
 
-use crate::println;
+use crate::{hw::uart::uart_interrupt_handler, println};
 
 pub fn interrupts_set_enabled(enabled: bool) {
     let mut status = Cp0RegStatus::read();
@@ -214,11 +214,19 @@ extern "C" fn general_exception_handler() {
     let pending = cause.pending_interrupts();
 
     // we do not support software interrupts
-    if pending.software0() || pending.software1() {
-        panic!("software interrupts are not supported, but got pending software interrupts");
+    if pending.software0()
+        || pending.software1()
+        || pending.piix4_smi()
+        || pending.corehi()
+        || pending.corelo()
+        || pending.timer()
+    {
+        panic!("received unsupported interrupts: {:?}", pending.to_fields());
     }
 
-    println!("interrupt: {:?}", pending.to_fields());
+    if pending.tty2() {
+        uart_interrupt_handler();
+    }
 
     if pending.piix4_intr() {
         // acknowledge the interrupt
@@ -229,8 +237,11 @@ extern "C" fn general_exception_handler() {
 
         // the isr should only have 1 bit set, since we only service one interrupt at a time.
         assert_eq!(isr.count_ones(), 1);
-        let irq = I8259Irq::from_bits(isr.trailing_zeros() as u8);
 
+        // calculate the irq number by calculating the index of the bit that is set in the ISR.
+        let irq_number = isr.trailing_zeros() as u8;
+
+        let irq = I8259Irq::from_bits(irq_number);
         match irq {
             I8259Irq::Timer => {
                 // TODO
@@ -240,7 +251,7 @@ extern "C" fn general_exception_handler() {
             }
         }
 
-        PIIX4_I8259_CHAIN.eoi();
+        PIIX4_I8259_CHAIN.eoi(irq_number);
     }
 }
 
@@ -478,10 +489,14 @@ impl I8259Chain {
         Self::merge_slave_master_reg(self.master.get_mask(), self.slave.get_mask())
     }
 
-    pub fn eoi(&self) {
-        // TODO: do we always want to do an EOI on the slave here? no we don't... but for that we need to know which irq line
-        // the interrupt was received on, which i currently have no idea how to do.
-        self.slave.eoi();
+    /// sends an end of interrupt to the interrupt controller chain, according to the given irq number of the interrupt.
+    pub fn eoi(&self, irq_number: u8) {
+        // if the irq number is from the slave, then send eoi to the slave as well
+        if irq_number >= 8 {
+            self.slave.eoi();
+        }
+
+        // always send eoi to the master, even if the irq is from the slave, since all irqs pass through the master.
         self.master.eoi();
     }
 }
