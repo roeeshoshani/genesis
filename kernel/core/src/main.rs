@@ -5,11 +5,11 @@
 use core::panic::PanicInfo;
 use hal::mem::{PhysMemRegion, RAM_0};
 use interrupts::{interrupts_disable, interrupts_enable, interrupts_init};
-use mm::{alloc_pages, kernel_end_phys, page_allocator_init, PageAllocator};
+use mem::{alloc_pages, kernel_end_phys, page_allocator_init, PageAllocator};
 use uart::{uart_init, uart_read_byte};
 
 pub mod interrupts;
-pub mod mm;
+pub mod mem;
 pub mod pci;
 pub mod sync;
 pub mod uart;
