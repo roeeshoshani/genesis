@@ -1,4 +1,4 @@
-use core::arch::global_asm;
+use core::arch::{asm, global_asm};
 
 use bitpiece::*;
 use hal::{
@@ -509,6 +509,11 @@ fn i8259_init() {
     let mut status = Cp0RegStatus::read();
     status.interrupt_mask_mut().set_piix4_intr(true);
     Cp0RegStatus::write(status);
+}
+
+/// puts the cpu to sleep until an external event is received (interrupt, nmi, or reset).
+pub fn wait_for_interrupt() {
+    unsafe { asm!("wait") };
 }
 
 pub fn interrupts_init() {
