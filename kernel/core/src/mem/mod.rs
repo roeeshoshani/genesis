@@ -7,6 +7,7 @@ use hal::mem::{PhysAddr, PhysMemRegion, VirtAddr, KERNEL_CORE_ADDR, RAM_0};
 
 use crate::sync::IrqSpinlock;
 
+pub mod allocator_utils;
 pub mod page_alloc;
 
 extern "C" {
