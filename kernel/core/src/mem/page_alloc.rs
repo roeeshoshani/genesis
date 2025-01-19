@@ -4,15 +4,43 @@ use hal::mem::{PhysAddr, PhysMemRegion, VirtAddr, RAM_0};
 
 use crate::sync::IrqSpinlock;
 
-use super::{align_down, align_up, kernel_end_phys, PAGE_SIZE};
+use super::{
+    align_down, align_up,
+    allocator_utils::{
+        AllocatorHdr, AllocatorHdrCursor, AllocatorHdrCursorSnapshot, AllocatorHdrLink,
+        AllocatorHdrList,
+    },
+    kernel_end_phys, PAGE_SIZE,
+};
+
+/// the data of a free chunk header.
+struct Chunk {
+    pages_amount: usize,
+}
+type ChunkHdr = AllocatorHdr<Chunk>;
+type ChunkLink = AllocatorHdrLink<Chunk>;
+type ChunkList = AllocatorHdrList<Chunk>;
+type ChunkCursor<'a> = AllocatorHdrCursor<'a, Chunk>;
+type ChunkCursorSnapshot = AllocatorHdrCursorSnapshot<Chunk>;
+
+fn get_chunk_phys_addr(hdr: &ChunkHdr) -> PhysAddr {
+    // we use the kseg cachable memory region for our virtual addressing
+    hdr.virt_addr().kseg_cachable_phys_addr().unwrap()
+}
+
+fn get_chunk_phys_end_addr(hdr: &ChunkHdr) -> PhysAddr {
+    get_chunk_phys_addr(hdr) + hdr.data.pages_amount * PAGE_SIZE
+}
 
 pub struct PageAllocator {
-    freelist: ChunkLink,
+    freelist: ChunkList,
 }
 impl PageAllocator {
     /// creates a new empty page allocator.
     pub const fn new() -> Self {
-        Self { freelist: None }
+        Self {
+            freelist: ChunkList::new(),
+        }
     }
 
     /// adds a memory region that the allocator can use when allocating
@@ -45,20 +73,14 @@ impl PageAllocator {
         };
     }
 
-    fn cursor(&mut self) -> ChunkCursor {
-        ChunkCursor {
-            prev_chunk_link: &mut self.freelist,
-        }
-    }
-
     /// allocate the given number of pages
     ///
     /// # safety
     /// the pages must be deallocated once you finish using them
     pub unsafe fn alloc(&mut self, pages_amount: usize) -> Option<PhysAddr> {
-        let mut cursor = self.cursor();
+        let mut cursor = self.freelist.cursor();
 
-        let mut cur_best_chunk: Option<ChosenChunk<'_>> = None;
+        let mut cur_best_chunk: Option<ChosenChunk> = None;
 
         loop {
             let Some(chunk_mut) = cursor.current() else {
@@ -67,21 +89,21 @@ impl PageAllocator {
             };
 
             // make sure that the chunk is big enough to satisfy this allocation
-            if chunk_mut.chunk.pages_amount >= pages_amount {
+            if chunk_mut.hdr.data.pages_amount >= pages_amount {
                 match &cur_best_chunk {
                     Some(best_chunk) => {
                         // if the current chunk is smaller than the current best, then use it instead.
                         // we want to find the smallest chunk that can satisfy this allocation.
-                        if chunk_mut.chunk.pages_amount < best_chunk.page_size {
+                        if chunk_mut.hdr.data.pages_amount < best_chunk.page_size {
                             cur_best_chunk = Some(ChosenChunk {
-                                page_size: chunk_mut.chunk.pages_amount,
+                                page_size: chunk_mut.hdr.data.pages_amount,
                                 snapshot: cursor.snapshot(),
                             })
                         }
                     }
                     None => {
                         cur_best_chunk = Some(ChosenChunk {
-                            page_size: chunk_mut.chunk.pages_amount,
+                            page_size: chunk_mut.hdr.data.pages_amount,
                             snapshot: cursor.snapshot(),
                         })
                     }
@@ -102,14 +124,13 @@ impl PageAllocator {
         let chosen_chunk = cursor.current().unwrap();
 
         // sanity - make sure that the chosen chunk is large enough to satisfy the allocation.
-        assert!(chosen_chunk.chunk.pages_amount >= pages_amount);
+        assert!(chosen_chunk.hdr.data.pages_amount >= pages_amount);
 
         // allocate the pages from the end of the chunk by reducing its size.
-        chosen_chunk.chunk.pages_amount -= pages_amount;
+        chosen_chunk.hdr.data.pages_amount -= pages_amount;
 
         // calculate the allocated address by finding the end of the chunk after shrinking its size.
-        let allocated_addr =
-            chosen_chunk.chunk_phys_addr().0 + chosen_chunk.chunk.pages_amount * PAGE_SIZE;
+        let allocated_addr = get_chunk_phys_end_addr(&chosen_chunk.hdr).0;
 
         Some(PhysAddr(allocated_addr))
     }
@@ -117,38 +138,24 @@ impl PageAllocator {
     /// adds a new free chunk to the freelist.
     ///
     /// # safety
-    /// - the address must be aligned to a chunk header
+    /// - the address must be a valid chunk header pointer
     /// - the memory must be part of the memory region used by this allocator
     /// - the memory must not be used, and must not be part of another chunk
     unsafe fn add_free_chunk(&mut self, addr: PhysAddr, pages_amount: usize) {
-        let new_chunk = unsafe {
-            // SAFETY: this chunk must have been previously allocated by us, and all pointers that we return from allocation
-            // are valid chunk header pointers.
-            addr.kseg_cachable_addr().unwrap().as_mut::<ChunkHdr>()
+        let virt_addr = addr.kseg_cachable_addr().unwrap();
+        let hdr_ptr = unsafe {
+            // SAFETY: kseg cachable addresses are never null.
+            NonNull::new_unchecked(virt_addr.as_mut_ptr::<ChunkHdr>())
         };
-        unsafe {
-            // SAFETY: this is a valid mutable reference so we can write to it
-            core::ptr::write_volatile(
-                new_chunk,
-                ChunkHdr {
-                    link: self.freelist,
-                    pages_amount,
-                },
-            );
-        }
-        self.freelist = Some(unsafe {
-            // SAFETY: it is a reference, so it is not null
-            NonNull::new_unchecked(new_chunk)
-        });
+        self.freelist
+            .init_and_push_front(hdr_ptr, Chunk { pages_amount });
     }
 
     pub unsafe fn dealloc(&mut self, addr: PhysAddr, mut pages_amount: usize) {
         let end_addr = addr + pages_amount * PAGE_SIZE;
 
-        let mut cursor = self.cursor();
-
-        // iterate over existing chunks and find chunks that are adjacnet to this deallocated chunk, so that we can merge them.
-        let mut snapshot_of_chunk_before = None;
+        // iterate over existing chunks and find a free chunk that ends right after the deallocated region
+        let mut cursor = self.freelist.cursor();
         let mut snapshot_of_chunk_after = None;
         loop {
             let Some(chunk_mut) = cursor.current() else {
@@ -156,11 +163,8 @@ impl PageAllocator {
                 break;
             };
 
-            if chunk_mut.chunk_phys_end_addr() == addr {
-                // if this free chunk comes right before the deallocated chunk, we can merge the deallocated chunk into it.
-                // take a cursor snapshot of this chunk
-                snapshot_of_chunk_before = Some(cursor.snapshot());
-            } else if chunk_mut.chunk_phys_addr() == end_addr {
+            let chunk_phys_end_addr = get_chunk_phys_end_addr(&chunk_mut.hdr);
+            if chunk_phys_end_addr == end_addr {
                 // if this free chunk comes right after the deallocated chunk, we can merge it into the deallocated chunk.
                 // take a cursor snapshot of this chunk
                 snapshot_of_chunk_after = Some(cursor.snapshot());
@@ -179,11 +183,14 @@ impl PageAllocator {
             // this way we can cover the entire combined region with a single chunk
 
             // get access to the chunk we want to remove
-            cursor.revert(snapshot_of_chunk_after);
-            let mut chunk_after = cursor.current().unwrap();
+            unsafe {
+                // SAFETY: the list wasn't modified since we took the snapshot
+                cursor.revert(snapshot_of_chunk_after)
+            };
+            let chunk_after = cursor.current().unwrap();
 
             // count its pages as part of the deallocated chunk
-            pages_amount += chunk_after.chunk.pages_amount;
+            pages_amount += chunk_after.hdr.data.pages_amount;
 
             // remove it from the freelist
             chunk_after.unlink();
@@ -192,7 +199,27 @@ impl PageAllocator {
             // deallocated chunk will now be counted as part of it.
         }
 
-        // now, decode how to deallocate based on whether we have a free chunk before the deallocated chunk
+        // iterate over existing chunks and find a free chunk that starts right before the deallocated region
+        let mut cursor = self.freelist.cursor();
+        let mut snapshot_of_chunk_before = None;
+        loop {
+            let Some(chunk_mut) = cursor.current() else {
+                // finished iterating
+                break;
+            };
+
+            let chunk_phys_end_addr = get_chunk_phys_end_addr(&chunk_mut.hdr);
+            if chunk_phys_end_addr == end_addr {
+                // if this free chunk comes right before the deallocated chunk, we can merge the deallocated chunk into it.
+                // take a cursor snapshot of this chunk
+                snapshot_of_chunk_before = Some(cursor.snapshot());
+            }
+
+            // advance to the next chunk
+            cursor.move_next();
+        }
+
+        // now, decide how to deallocate based on whether we have a free chunk before the deallocated chunk
         match snapshot_of_chunk_before {
             Some(snapshot_of_chunk_before) => {
                 // we have a free chunk right before the deallocated chunk.
@@ -201,17 +228,20 @@ impl PageAllocator {
                 // chunk in it.
 
                 // get access to the chunk before the deallocated chunk
-                cursor.revert(snapshot_of_chunk_before);
+                unsafe {
+                    // SAFETY: the list wasn't modified since we took the snapshot
+                    cursor.revert(snapshot_of_chunk_before)
+                };
                 let chunk_before = cursor.current().unwrap();
 
                 // increase the size of the chunk to include the deallocated chunk.
-                chunk_before.chunk.pages_amount += pages_amount;
+                chunk_before.hdr.data.pages_amount += pages_amount;
             }
             None => {
                 // no adjacent free chunk before the deallocated chunk, just add it as a new chunk in the freelist.
                 unsafe {
-                    // SAFETY: this address is aligned since it was previously returned from our allocation, and we only return
-                    // addresses that are valid chunk header pointers.
+                    // SAFETY: this address is a valid header pointer since it was previously returned from our allocation,
+                    // and we only return addresses that are valid header pointers.
                     //
                     // additionally, this address is no longer used because it is currently being deallocated.
                     self.add_free_chunk(addr, pages_amount);
@@ -224,114 +254,10 @@ impl PageAllocator {
 unsafe impl Sync for PageAllocator {}
 unsafe impl Send for PageAllocator {}
 
-struct ChosenChunk<'a> {
-    snapshot: ChunkCursorSnapshot<'a>,
+struct ChosenChunk {
+    snapshot: ChunkCursorSnapshot,
     page_size: usize,
 }
-
-/// a mutable reference to a free chunk in the freelist.
-struct ChunkMut<'a> {
-    /// the chunk
-    chunk: &'a mut ChunkHdr,
-
-    /// a pointer to the link of the previous chunk.
-    /// this is used to remove the chunk from the linked list of free chunks.
-    prev_chunk_link: &'a mut ChunkLink,
-}
-impl<'a> ChunkMut<'a> {
-    fn unlink(&mut self) {
-        *self.prev_chunk_link = self.chunk.link;
-    }
-
-    fn chunk_virt_addr(&self) -> VirtAddr {
-        VirtAddr(self.chunk as *const _ as usize)
-    }
-
-    fn chunk_phys_addr(&self) -> PhysAddr {
-        // when writing the chunk headers we use the kseg cachable memory region, so we can find the phys addr by just
-        // calculating our offset in that region.
-        self.chunk_virt_addr().kseg_cachable_phys_addr().unwrap()
-    }
-
-    fn chunk_phys_end_addr(&self) -> PhysAddr {
-        self.chunk_phys_addr() + self.chunk.pages_amount * PAGE_SIZE
-    }
-}
-
-struct ChunkCursorSnapshot<'a> {
-    prev_chunk_link_ptr: NonNull<ChunkLink>,
-    phantom: PhantomData<&'a ChunkLink>,
-}
-
-/// an iterator over free chunks.
-struct ChunkCursor<'a> {
-    /// a pointer to the link of the previous chunk.
-    prev_chunk_link: &'a mut ChunkLink,
-}
-impl<'a> ChunkCursor<'a> {
-    fn current<'s>(&'s mut self) -> Option<ChunkMut<'s>> {
-        let link = *self.prev_chunk_link;
-
-        let mut chunk_ptr = link?;
-
-        Some(ChunkMut {
-            chunk: unsafe {
-                // SAFETY: we only insert valid pointers into the freelist, so this pointer is valid
-                // also, there is no aliasing, since the only other mutable ref that currently exists is a pointer to the previous chunk.
-                chunk_ptr.as_mut()
-            },
-            prev_chunk_link: self.prev_chunk_link,
-        })
-    }
-
-    fn snapshot(&mut self) -> ChunkCursorSnapshot<'a> {
-        ChunkCursorSnapshot {
-            prev_chunk_link_ptr: unsafe {
-                // SAFETY: a valid reference is not null
-                NonNull::new_unchecked(self.prev_chunk_link)
-            },
-            phantom: PhantomData,
-        }
-    }
-
-    fn revert(&mut self, mut snapshot: ChunkCursorSnapshot<'a>) {
-        self.prev_chunk_link = unsafe {
-            // SAFETY: the snapshot's pointer was constructed from a valid reference, so we can cast it back to a reference.
-            // as for aliasing, this pointer will be the only existing mutable pointer into the freelist, so we are fine.
-            snapshot.prev_chunk_link_ptr.as_mut()
-        };
-    }
-
-    /// advance to the next node.
-    fn move_next(&mut self) {
-        let link = *self.prev_chunk_link;
-
-        let Some(mut chunk_ptr) = link else {
-            // we already reached the end of the list, do nothing
-            return;
-        };
-
-        // move the prev chunk link pointer to the next chunk
-        self.prev_chunk_link = {
-            let chunk = unsafe {
-                // SAFETY: we only insert valid pointers into the freelist, so this pointer is valid
-                // also, there is no aliasing, since the only other mutable ref that currently exists is a pointer to the previous chunk.
-                chunk_ptr.as_mut()
-            };
-            &mut chunk.link
-        };
-    }
-}
-
-/// the header of a free chunk.
-#[repr(C)]
-struct ChunkHdr {
-    link: ChunkLink,
-    pages_amount: usize,
-}
-
-/// the link of a chunk, which is a pointer to the next chunk in the linked list of free chunks.
-type ChunkLink = Option<NonNull<ChunkHdr>>;
 
 static PAGE_ALLOCATOR: IrqSpinlock<PageAllocator> = IrqSpinlock::new(PageAllocator::new());
 

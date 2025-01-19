@@ -140,4 +140,4 @@ impl<T> AllocatorHdr<T> {
 }
 
 /// the link of a chunk, which is a pointer to the next chunk in the linked list of free chunks.
-type AllocatorHdrLink<T> = Option<NonNull<AllocatorHdr<T>>>;
+pub type AllocatorHdrLink<T> = Option<NonNull<AllocatorHdr<T>>>;
