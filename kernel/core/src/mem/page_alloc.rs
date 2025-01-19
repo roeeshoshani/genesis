@@ -82,12 +82,7 @@ impl PageAllocator {
 
         let mut cur_best_chunk: Option<ChosenChunk> = None;
 
-        loop {
-            let Some(chunk_mut) = cursor.current() else {
-                // finished iterating
-                break;
-            };
-
+        while let Some(chunk_mut) = cursor.current() {
             // make sure that the chunk is big enough to satisfy this allocation
             if chunk_mut.hdr.data.pages_amount >= pages_amount {
                 match &cur_best_chunk {
@@ -157,12 +152,7 @@ impl PageAllocator {
         // iterate over existing chunks and find a free chunk that ends right after the deallocated region
         let mut cursor = self.freelist.cursor();
         let mut snapshot_of_chunk_after = None;
-        loop {
-            let Some(chunk_mut) = cursor.current() else {
-                // finished iterating
-                break;
-            };
-
+        while let Some(chunk_mut) = cursor.current() {
             let chunk_phys_end_addr = get_chunk_phys_end_addr(&chunk_mut.hdr);
             if chunk_phys_end_addr == end_addr {
                 // if this free chunk comes right after the deallocated chunk, we can merge it into the deallocated chunk.
@@ -202,12 +192,7 @@ impl PageAllocator {
         // iterate over existing chunks and find a free chunk that starts right before the deallocated region
         let mut cursor = self.freelist.cursor();
         let mut snapshot_of_chunk_before = None;
-        loop {
-            let Some(chunk_mut) = cursor.current() else {
-                // finished iterating
-                break;
-            };
-
+        while let Some(chunk_mut) = cursor.current() {
             let chunk_phys_end_addr = get_chunk_phys_end_addr(&chunk_mut.hdr);
             if chunk_phys_end_addr == end_addr {
                 // if this free chunk comes right before the deallocated chunk, we can merge the deallocated chunk into it.
