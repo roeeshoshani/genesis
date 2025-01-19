@@ -40,8 +40,9 @@ impl<T> AllocatorHdrList<T> {
     }
 }
 
-/// a mutable reference to an allocator header in the list of headers.
-pub struct AllocatorHdrMut<'a, T> {
+/// a view to an allocator header in the list of headers.
+/// this view allows for removing this item from the list.
+pub struct AllocatorHdrView<'a, T> {
     /// the header
     pub hdr: &'a mut AllocatorHdr<T>,
 
@@ -49,7 +50,7 @@ pub struct AllocatorHdrMut<'a, T> {
     /// this is used to remove the header from the list, if we ever wish to do so.
     pub prev_hdr_link: &'a mut AllocatorHdrLink<T>,
 }
-impl<'a, T> AllocatorHdrMut<'a, T> {
+impl<'a, T> AllocatorHdrView<'a, T> {
     /// unlinks this header from the list of headers.
     pub fn unlink(self) -> &'a mut AllocatorHdr<T> {
         *self.prev_hdr_link = self.hdr.link;
@@ -57,11 +58,12 @@ impl<'a, T> AllocatorHdrMut<'a, T> {
     }
 }
 
+/// a snapshot of an allocator header cursor.
 pub struct AllocatorHdrCursorSnapshot<T> {
     prev_hdr_link_ptr: NonNull<AllocatorHdrLink<T>>,
 }
 
-/// an iterator over allocator headers.
+/// a cursor inside a list of allocator headers.
 pub struct AllocatorHdrCursor<'a, T> {
     /// a pointer to the link of the previous header.
     prev_hdr_link: &'a mut AllocatorHdrLink<T>,
@@ -86,13 +88,13 @@ impl<'a, T> AllocatorHdrCursor<'a, T> {
         })
     }
 
-    /// returns a mutable reference to the current header of the cursor.
-    pub fn current_hdr_mut<'s>(&'s mut self) -> Option<AllocatorHdrMut<'s, T>> {
+    /// returns a view to the current header of the cursor.
+    pub fn current_view<'s>(&'s mut self) -> Option<AllocatorHdrView<'s, T>> {
         let link = *self.prev_hdr_link;
 
         let mut hdr_ptr = link?;
 
-        Some(AllocatorHdrMut {
+        Some(AllocatorHdrView {
             hdr: unsafe {
                 // SAFETY: we only insert valid pointers into the list, so this pointer is valid
                 // also, there is no aliasing, since the only other mutable ref that currently exists is a pointer to the previous header.
@@ -146,12 +148,12 @@ impl<'a, T> AllocatorHdrCursor<'a, T> {
     }
 
     /// finds an item which matches the given predicate.
-    pub fn find<'s, F>(&'s mut self, predicate: F) -> Option<AllocatorHdrMut<'s, T>>
+    pub fn find<'s, F>(&'s mut self, predicate: F) -> Option<AllocatorHdrView<'s, T>>
     where
         F: FnMut(&AllocatorHdr<T>) -> bool,
     {
         if self.move_next_until(predicate) {
-            self.current_hdr_mut()
+            self.current_view()
         } else {
             None
         }

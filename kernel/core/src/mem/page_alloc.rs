@@ -119,7 +119,7 @@ impl PageAllocator {
         }
 
         // get access to the chosen chunk
-        let chosen_chunk = cursor.current_hdr_mut().unwrap();
+        let chosen_chunk = cursor.current_view().unwrap();
 
         // sanity - make sure that the chosen chunk is large enough to satisfy the allocation.
         assert!(chosen_chunk.hdr.data.pages_amount >= pages_amount);
