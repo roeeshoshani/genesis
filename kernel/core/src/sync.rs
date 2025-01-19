@@ -11,7 +11,7 @@ impl<T> IrqSpinlock<T> {
         let interrupts_guard = InterruptsDisabledGuard::new();
         IrqSpinlockGuard {
             spinlock_guard: self.0.lock(),
-            interrupts_guard,
+            _interrupts_guard: interrupts_guard,
         }
     }
 }
@@ -20,7 +20,7 @@ pub struct IrqSpinlockGuard<'a, T: ?Sized + 'a> {
     // NOTE: the order of these fields is really important. it dictates the order in which they will get dropped.
     // we first want to drop the spinlock guard to unlock the lock, and only then we want to re-enable interrupts.
     spinlock_guard: spin::mutex::SpinMutexGuard<'a, T>,
-    interrupts_guard: InterruptsDisabledGuard,
+    _interrupts_guard: InterruptsDisabledGuard,
 }
 
 impl<'a, T: ?Sized + core::fmt::Debug> core::fmt::Debug for IrqSpinlockGuard<'a, T> {

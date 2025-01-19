@@ -1,15 +1,12 @@
-use core::{marker::PhantomData, ptr::NonNull};
+use core::ptr::NonNull;
 
-use hal::mem::{PhysAddr, PhysMemRegion, VirtAddr, RAM_0};
+use hal::mem::{PhysAddr, PhysMemRegion, RAM_0};
 
 use crate::sync::IrqSpinlock;
 
 use super::{
     align_down, align_up,
-    allocator_utils::{
-        AllocatorHdr, AllocatorHdrCursor, AllocatorHdrCursorSnapshot, AllocatorHdrLink,
-        AllocatorHdrList,
-    },
+    allocator_utils::{AllocatorHdr, AllocatorHdrCursorSnapshot, AllocatorHdrList},
     kernel_end_phys, PAGE_SIZE,
 };
 
@@ -17,10 +14,10 @@ use super::{
 struct Chunk {
     pages_amount: usize,
 }
+
+// useful type definitions
 type ChunkHdr = AllocatorHdr<Chunk>;
-type ChunkLink = AllocatorHdrLink<Chunk>;
 type ChunkList = AllocatorHdrList<Chunk>;
-type ChunkCursor<'a> = AllocatorHdrCursor<'a, Chunk>;
 type ChunkCursorSnapshot = AllocatorHdrCursorSnapshot<Chunk>;
 
 fn get_chunk_phys_addr(hdr: &ChunkHdr) -> PhysAddr {

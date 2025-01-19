@@ -154,19 +154,6 @@ impl PciDev {
     }
 }
 
-macro_rules! pci_function_define_bitfield_reg {
-    ($num: literal) => {
-        paste! {
-            pub fn [<read_config_reg $num>](self) -> [<PciConfigReg $num>] {
-                [<PciConfigReg $num>]::from_bits(self.config_reg($num).read())
-            }
-            pub fn [<write_config_reg $num>](self, value: [<PciConfigReg $num>]) {
-                self.config_reg($num).write(value.to_bits())
-            }
-        }
-    };
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct PciId {
     pub vendor_id: u16,

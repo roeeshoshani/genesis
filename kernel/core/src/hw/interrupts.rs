@@ -12,7 +12,7 @@ use hal::{
 };
 use volatile::VolatilePtr;
 
-use crate::{hw::uart::uart_interrupt_handler, println};
+use crate::hw::uart::uart_interrupt_handler;
 
 pub fn interrupts_set_enabled(enabled: bool) {
     let mut status = Cp0RegStatus::read();

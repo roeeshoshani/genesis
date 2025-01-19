@@ -1,11 +1,6 @@
-use core::{
-    marker::PhantomData,
-    ptr::{addr_of_mut, NonNull},
-};
+use core::ptr::addr_of_mut;
 
-use hal::mem::{PhysAddr, PhysMemRegion, VirtAddr, KERNEL_CORE_ADDR, RAM_0};
-
-use crate::sync::IrqSpinlock;
+use hal::mem::{PhysAddr, VirtAddr, KERNEL_CORE_ADDR};
 
 pub mod allocator_utils;
 pub mod page_alloc;
