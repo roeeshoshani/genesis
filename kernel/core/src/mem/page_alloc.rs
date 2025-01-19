@@ -82,23 +82,23 @@ impl PageAllocator {
 
         let mut cur_best_chunk: Option<ChosenChunk> = None;
 
-        while let Some(chunk_mut) = cursor.current() {
+        while let Some(chunk) = cursor.current() {
             // make sure that the chunk is big enough to satisfy this allocation
-            if chunk_mut.hdr.data.pages_amount >= pages_amount {
+            if chunk.pages_amount >= pages_amount {
                 match &cur_best_chunk {
                     Some(best_chunk) => {
                         // if the current chunk is smaller than the current best, then use it instead.
                         // we want to find the smallest chunk that can satisfy this allocation.
-                        if chunk_mut.hdr.data.pages_amount < best_chunk.page_size {
+                        if chunk.pages_amount < best_chunk.page_size {
                             cur_best_chunk = Some(ChosenChunk {
-                                page_size: chunk_mut.hdr.data.pages_amount,
+                                page_size: chunk.pages_amount,
                                 snapshot: cursor.snapshot(),
                             })
                         }
                     }
                     None => {
                         cur_best_chunk = Some(ChosenChunk {
-                            page_size: chunk_mut.hdr.data.pages_amount,
+                            page_size: chunk.pages_amount,
                             snapshot: cursor.snapshot(),
                         })
                     }
@@ -113,10 +113,13 @@ impl PageAllocator {
         let chosen_chunk_info = cur_best_chunk?;
 
         // move the cursor to the chosen chunk so that we can access it.
-        cursor.revert(chosen_chunk_info.snapshot);
+        unsafe {
+            // SAFETY: the list was not modified since we took the snapshot
+            cursor.revert(chosen_chunk_info.snapshot);
+        }
 
         // get access to the chosen chunk
-        let chosen_chunk = cursor.current().unwrap();
+        let chosen_chunk = cursor.current_hdr_mut().unwrap();
 
         // sanity - make sure that the chosen chunk is large enough to satisfy the allocation.
         assert!(chosen_chunk.hdr.data.pages_amount >= pages_amount);
@@ -126,6 +129,11 @@ impl PageAllocator {
 
         // calculate the allocated address by finding the end of the chunk after shrinking its size.
         let allocated_addr = get_chunk_phys_end_addr(&chosen_chunk.hdr).0;
+
+        // if the chunk is now empty, remove it from the list
+        if chosen_chunk.hdr.data.pages_amount == 0 {
+            chosen_chunk.unlink();
+        }
 
         Some(PhysAddr(allocated_addr))
     }
@@ -149,35 +157,15 @@ impl PageAllocator {
     pub unsafe fn dealloc(&mut self, addr: PhysAddr, mut pages_amount: usize) {
         let end_addr = addr + pages_amount * PAGE_SIZE;
 
-        // iterate over existing chunks and find a free chunk that ends right after the deallocated region
-        let mut cursor = self.freelist.cursor();
-        let mut snapshot_of_chunk_after = None;
-        while let Some(chunk_mut) = cursor.current() {
-            let chunk_phys_end_addr = get_chunk_phys_end_addr(&chunk_mut.hdr);
-            if chunk_phys_end_addr == end_addr {
-                // if this free chunk comes right after the deallocated chunk, we can merge it into the deallocated chunk.
-                // take a cursor snapshot of this chunk
-                snapshot_of_chunk_after = Some(cursor.snapshot());
-            }
-
-            // advance to the next chunk
-            cursor.move_next();
-        }
-
         // handle the case where we have an adjacent free chunk right after the deallocated chunk
-        if let Some(snapshot_of_chunk_after) = snapshot_of_chunk_after {
+        let mut cursor = self.freelist.cursor();
+        let maybe_chunk_after = cursor.find(|hdr| get_chunk_phys_addr(hdr) == end_addr);
+        if let Some(chunk_after) = maybe_chunk_after {
             // in this case, what we want to do is:
             // - remove the existing chunk that is after the deallocated chunk
             // - increase the size of the deallocated chunk to include the existing chunk
             //
             // this way we can cover the entire combined region with a single chunk
-
-            // get access to the chunk we want to remove
-            unsafe {
-                // SAFETY: the list wasn't modified since we took the snapshot
-                cursor.revert(snapshot_of_chunk_after)
-            };
-            let chunk_after = cursor.current().unwrap();
 
             // count its pages as part of the deallocated chunk
             pages_amount += chunk_after.hdr.data.pages_amount;
@@ -189,37 +177,15 @@ impl PageAllocator {
             // deallocated chunk will now be counted as part of it.
         }
 
-        // iterate over existing chunks and find a free chunk that starts right before the deallocated region
-        let mut cursor = self.freelist.cursor();
-        let mut snapshot_of_chunk_before = None;
-        while let Some(chunk_mut) = cursor.current() {
-            let chunk_phys_end_addr = get_chunk_phys_end_addr(&chunk_mut.hdr);
-            if chunk_phys_end_addr == end_addr {
-                // if this free chunk comes right before the deallocated chunk, we can merge the deallocated chunk into it.
-                // take a cursor snapshot of this chunk
-                snapshot_of_chunk_before = Some(cursor.snapshot());
-            }
-
-            // advance to the next chunk
-            cursor.move_next();
-        }
-
         // now, decide how to deallocate based on whether we have a free chunk before the deallocated chunk
-        match snapshot_of_chunk_before {
-            Some(snapshot_of_chunk_before) => {
+        let mut cursor = self.freelist.cursor();
+        let maybe_chunk_before = cursor.find(|hdr| get_chunk_phys_end_addr(hdr) == addr);
+        match maybe_chunk_before {
+            Some(chunk_before) => {
                 // we have a free chunk right before the deallocated chunk.
                 //
                 // so, to deallocate it, we can just increase the size of that chunk that comes before it to include the deallocated
                 // chunk in it.
-
-                // get access to the chunk before the deallocated chunk
-                unsafe {
-                    // SAFETY: the list wasn't modified since we took the snapshot
-                    cursor.revert(snapshot_of_chunk_before)
-                };
-                let chunk_before = cursor.current().unwrap();
-
-                // increase the size of the chunk to include the deallocated chunk.
                 chunk_before.hdr.data.pages_amount += pages_amount;
             }
             None => {

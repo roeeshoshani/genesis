@@ -68,7 +68,26 @@ pub struct AllocatorHdrCursor<'a, T> {
 }
 impl<'a, T> AllocatorHdrCursor<'a, T> {
     /// returns the current item of the cursor.
-    pub fn current<'s>(&'s mut self) -> Option<AllocatorHdrMut<'s, T>> {
+    pub fn current(&self) -> Option<&'a T> {
+        let hdr = self.current_hdr()?;
+        Some(&hdr.data)
+    }
+
+    /// returns the current header of the cursor.
+    pub fn current_hdr(&self) -> Option<&'a AllocatorHdr<T>> {
+        let link = *self.prev_hdr_link;
+
+        let hdr_ptr = link?;
+
+        Some(unsafe {
+            // SAFETY: we only insert valid pointers into the list, so this pointer is valid
+            // also, there is no aliasing, since the only other ref that currently exists is a pointer to the previous header.
+            hdr_ptr.as_ref()
+        })
+    }
+
+    /// returns a mutable reference to the current header of the cursor.
+    pub fn current_hdr_mut<'s>(&'s mut self) -> Option<AllocatorHdrMut<'s, T>> {
         let link = *self.prev_hdr_link;
 
         let mut hdr_ptr = link?;
@@ -124,6 +143,32 @@ impl<'a, T> AllocatorHdrCursor<'a, T> {
             };
             &mut hdr.link
         };
+    }
+
+    /// finds an item which matches the given predicate.
+    pub fn find<'s, F>(&'s mut self, predicate: F) -> Option<AllocatorHdrMut<'s, T>>
+    where
+        F: FnMut(&AllocatorHdr<T>) -> bool,
+    {
+        if self.move_next_until(predicate) {
+            self.current_hdr_mut()
+        } else {
+            None
+        }
+    }
+
+    /// moves to the next item until an item which matches the given predicate is encountered.
+    pub fn move_next_until<F>(&mut self, mut predicate: F) -> bool
+    where
+        F: FnMut(&AllocatorHdr<T>) -> bool,
+    {
+        while let Some(hdr) = self.current_hdr() {
+            if predicate(hdr) {
+                return true;
+            }
+            self.move_next();
+        }
+        false
     }
 }
 
