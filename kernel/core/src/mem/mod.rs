@@ -4,6 +4,7 @@ use hal::mem::{PhysAddr, VirtAddr, KERNEL_CORE_ADDR};
 
 pub mod allocator_utils;
 pub mod page_alloc;
+pub mod phys_alloc;
 
 extern "C" {
     /// a pointer to the end of the kernel.
@@ -35,14 +36,41 @@ pub fn kernel_size() -> usize {
 /// the chosen value is the minimal possible page size. it was chosen so that fragmentation is less of a problem.
 pub const PAGE_SIZE: usize = 4096;
 
+/// aligns down the given value to the given alignment
 pub const fn align_down(value: usize, align: usize) -> usize {
     (value / align) * align
 }
 
+/// aligns up the given value to the given alignment
 pub const fn align_up(value: usize, align: usize) -> usize {
     align_down(value + align - 1, align)
 }
 
+/// returns whether the given value is aligned to the given alignment
 pub const fn is_aligned(value: usize, align: usize) -> bool {
     (value % align) == 0
+}
+
+/// aligns down the given value to the given alignment
+///
+/// # safety
+/// the alignment must be a power of 2
+pub const unsafe fn align_down_p2(value: usize, align: usize) -> usize {
+    value & (!(align - 1))
+}
+
+/// aligns up the given value to the given alignment
+///
+/// # safety
+/// the alignment must be a power of 2
+pub const unsafe fn align_up_p2(value: usize, align: usize) -> usize {
+    (value.wrapping_sub(1) | (align - 1)).wrapping_add(1)
+}
+
+/// returns whether the given value is aligned to the given alignment
+///
+/// # safety
+/// the alignment must be a power of 2
+pub const unsafe fn is_aligned_p2(value: usize, align: usize) -> bool {
+    (value & (align - 1)) == 0
 }

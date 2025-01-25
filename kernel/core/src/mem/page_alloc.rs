@@ -1,4 +1,4 @@
-use core::ptr::NonNull;
+use core::{mem::ManuallyDrop, ptr::NonNull};
 
 use hal::mem::{PhysAddr, PhysMemRegion, RAM_0};
 
@@ -118,9 +118,6 @@ impl PageAllocator {
         // get access to the chosen chunk
         let chosen_chunk = cursor.current_view().unwrap();
 
-        // sanity - make sure that the chosen chunk is large enough to satisfy the allocation.
-        assert!(chosen_chunk.hdr.data.pages_amount >= pages_amount);
-
         // allocate the pages from the end of the chunk by reducing its size.
         chosen_chunk.hdr.data.pages_amount -= pages_amount;
 
@@ -230,6 +227,11 @@ pub fn alloc_pages(pages_amount: usize) -> Option<Pages> {
     Some(Pages { addr, pages_amount })
 }
 
+pub struct PagesRaw {
+    pub addr: PhysAddr,
+    pub pages_amount: usize,
+}
+
 pub struct Pages {
     addr: PhysAddr,
     pages_amount: usize,
@@ -238,6 +240,32 @@ pub struct Pages {
 impl Pages {
     pub fn addr(&self) -> PhysAddr {
         self.addr
+    }
+    pub fn pages_amount(&self) -> usize {
+        self.pages_amount
+    }
+
+    /// consumes the pages object, returning raw pages information.
+    ///
+    /// # safety
+    /// you must make sure to properly free the pages once you finish using them.
+    pub unsafe fn into_raw(self) -> PagesRaw {
+        let pages = ManuallyDrop::new(self);
+        PagesRaw {
+            addr: pages.addr,
+            pages_amount: pages.pages_amount,
+        }
+    }
+
+    /// constructs a pages object from the given raw pages information.
+    ///
+    /// # safety
+    /// the pages information must have been previously returned by converting a proper pages object into raw pages information.
+    pub unsafe fn from_raw(info: PagesRaw) -> Self {
+        Self {
+            addr: info.addr,
+            pages_amount: info.pages_amount,
+        }
     }
 }
 
