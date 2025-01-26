@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 #![feature(asm_experimental_arch)]
+#![feature(allocator_api)]
 
 use core::panic::PanicInfo;
 use hw::{

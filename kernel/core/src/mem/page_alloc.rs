@@ -148,6 +148,10 @@ impl PageAllocator {
             .init_and_push_front(hdr_ptr, Chunk { pages_amount });
     }
 
+    /// deallocated the given pages.
+    ///
+    /// # safety
+    /// the paghes must have been previously returned from an allocation request to this allocator.
     pub unsafe fn dealloc(&mut self, addr: PhysAddr, mut pages_amount: usize) {
         let end_addr = addr + pages_amount * PAGE_SIZE;
 

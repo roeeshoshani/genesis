@@ -1,8 +1,14 @@
-use core::{alloc::Layout, ptr::NonNull};
+use core::{
+    alloc::{AllocError, Allocator, Layout},
+    ptr::NonNull,
+};
 
-use hal::mem::PhysAddr;
+use hal::mem::{PhysAddr, VirtAddr};
 
-use crate::mem::{is_aligned, page_alloc::alloc_pages};
+use crate::{
+    mem::{is_aligned, page_alloc::alloc_pages},
+    sync::IrqSpinlock,
+};
 
 use super::{
     align_up, align_up_p2,
@@ -38,10 +44,10 @@ pub const MAX_ALLOCATION_SIZE: usize = PAGE_SIZE * MAX_ALLOCATION_SIZE_PAGES;
 /// the maximum allowed alignment of an allocation.
 pub const MAX_ALLOCATION_ALIGN: usize = PAGE_SIZE;
 
-pub struct PhysAllocator {
+pub struct RawPhysAllocator {
     freelist: ChunkList,
 }
-impl PhysAllocator {
+impl RawPhysAllocator {
     /// creates a new empty physical memory allocator.
     pub const fn new() -> Self {
         Self {
@@ -306,7 +312,11 @@ impl PhysAllocator {
         self.freelist.init_and_push_front(hdr_ptr, Chunk { size });
     }
 
-    pub fn dealloc(&mut self, addr: PhysAddr, layout: Layout) {
+    /// deallocated the given memory.
+    ///
+    /// # safety
+    /// the memory must have been previously returned from an allocation request to this allocator.
+    pub unsafe fn dealloc(&mut self, addr: PhysAddr, layout: Layout) {
         // fix the layout according to our layout requirements
         let layout = Self::fix_layout(layout);
 
@@ -369,4 +379,38 @@ struct ChosenChunk {
     snapshot: ChunkCursorSnapshot,
     size: usize,
     alignment_padding: usize,
+}
+
+pub struct PhysAllocator(IrqSpinlock<RawPhysAllocator>);
+impl PhysAllocator {
+    pub const fn new() -> Self {
+        Self(IrqSpinlock::new(RawPhysAllocator::new()))
+    }
+}
+unsafe impl Allocator for PhysAllocator {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+        let mut allocator = self.0.lock();
+
+        let phys_addr = unsafe {
+            // SAFETY: the caller is responsible for deallocating this memory
+            allocator.allocate(layout).ok_or(AllocError)?
+        };
+
+        let virt_addr = phys_addr.kseg_cachable_addr().unwrap();
+        let allocated_ptr = unsafe { NonNull::new_unchecked(virt_addr.as_mut_ptr()) };
+        Ok(NonNull::slice_from_raw_parts(allocated_ptr, layout.size()))
+    }
+
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+        let virt_addr = VirtAddr(ptr.as_ptr() as usize);
+
+        // we use the kseg cachable memory region for our virtual addressing
+        let phys_addr = virt_addr.kseg_cachable_phys_addr().unwrap();
+
+        let mut allocator = self.0.lock();
+        unsafe {
+            // SAFETY: the caller must have provided us with memory that was previously allocated using this allocator.
+            allocator.dealloc(phys_addr, layout)
+        };
+    }
 }
