@@ -30,14 +30,14 @@ extern "C" fn _start() -> ! {
     // initialize the uart. this will allow us to print to the serial console very early on.
     uart_init();
 
+    // initialize the page allocator
+    page_allocator_init();
+
     // initialize the interrupt management logic
     interrupts_init();
 
     // initialize the uart interrupt management logic
     uart_init_interrupts();
-
-    // initialize the page allocator
-    page_allocator_init();
 
     // done initializing, enable interrupts
     interrupts_enable();
