@@ -5,7 +5,6 @@
 
 extern crate alloc;
 
-use alloc::boxed::Box;
 use core::panic::PanicInfo;
 use hw::{
     interrupts::{interrupts_disable, interrupts_enable, interrupts_init, wait_for_interrupt},
