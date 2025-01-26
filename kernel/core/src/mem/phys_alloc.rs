@@ -1,6 +1,6 @@
 use core::{
-    alloc::{AllocError, Allocator, Layout},
-    ptr::NonNull,
+    alloc::{AllocError, Allocator, GlobalAlloc, Layout},
+    ptr::{null_mut, NonNull},
 };
 
 use hal::mem::{PhysAddr, VirtAddr};
@@ -414,3 +414,41 @@ unsafe impl Allocator for PhysAllocator {
         };
     }
 }
+
+unsafe impl GlobalAlloc for PhysAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let mut allocator = self.0.lock();
+
+        let maybe_phys_addr = unsafe {
+            // SAFETY: the caller is responsible for deallocating this memory
+            allocator.allocate(layout)
+        };
+
+        let Some(phys_addr) = maybe_phys_addr else {
+            return null_mut();
+        };
+
+        let virt_addr = phys_addr.kseg_cachable_addr().unwrap();
+
+        virt_addr.as_mut_ptr()
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        let virt_addr = VirtAddr(ptr as usize);
+
+        // we use the kseg cachable memory region for our virtual addressing
+        let phys_addr = virt_addr.kseg_cachable_phys_addr().unwrap();
+
+        let mut allocator = self.0.lock();
+        unsafe {
+            // SAFETY: the caller must have provided us with memory that was previously allocated using this allocator.
+            allocator.dealloc(phys_addr, layout)
+        };
+    }
+}
+
+unsafe impl Sync for PhysAllocator {}
+unsafe impl Send for PhysAllocator {}
+
+#[global_allocator]
+pub static PHYS_ALLOCATOR: PhysAllocator = PhysAllocator::new();
