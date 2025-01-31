@@ -7,11 +7,11 @@ use core::{
 
 use alloc::{boxed::Box, vec::Vec};
 
-trait TaskTrait: Future<Output = ()> + 'static + Send {
+pub trait TaskTrait: Future<Output = ()> + 'static + Send {
     fn should_be_polled(&self) -> bool;
 }
 
-struct Task<F: Future<Output = ()> + 'static + Send> {
+pub struct Task<F: Future<Output = ()> + 'static + Send> {
     should_be_polled: bool,
     future: F,
 }
