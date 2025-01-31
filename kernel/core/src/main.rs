@@ -9,7 +9,7 @@ use core::panic::PanicInfo;
 use executor::EXECUTOR;
 use hw::{
     interrupts::{interrupts_disable, interrupts_enable, interrupts_init, wait_for_interrupt},
-    uart::{uart_init, uart_init_interrupts, uart_read_byte},
+    uart::{uart_init, uart_read_byte},
 };
 use mem::page_alloc::page_allocator_init;
 
@@ -67,9 +67,6 @@ extern "C" fn _start() -> ! {
 
     // initialize the interrupt management logic
     interrupts_init();
-
-    // initialize the uart interrupt management logic
-    uart_init_interrupts();
 
     // done initializing, enable interrupts
     interrupts_enable();

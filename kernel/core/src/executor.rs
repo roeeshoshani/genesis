@@ -24,7 +24,7 @@ pub struct Task {
 unsafe impl Sync for Task {}
 
 fn poll_task_retain(task: &mut Arc<Task>) -> bool {
-    if task.should_be_polled.swap(false, Ordering::Relaxed) {
+    if !task.should_be_polled.swap(false, Ordering::Relaxed) {
         // task is not ready to be polled yet, keep it in the list
         return true;
     }
@@ -59,8 +59,7 @@ pub struct Executor {
     tasks: Vec<Arc<Task>>,
 }
 impl Executor {
-    // do not construct manually. use the global executor. only one instance may exist.
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self { tasks: Vec::new() }
     }
 

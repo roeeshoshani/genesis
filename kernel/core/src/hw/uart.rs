@@ -106,6 +106,7 @@ pub fn uart_init() {
 }
 
 fn uart_set_interrupts_enabled(enabled: bool) {
+    println!("setting uart interrupts to: {}", enabled);
     // enable the uart interrupts
     let mut status = Cp0RegStatus::read();
     status.interrupt_mask_mut().set_tty2(enabled);
@@ -118,11 +119,6 @@ fn uart_enable_interrupts() {
 
 fn uart_disable_interrupts() {
     uart_set_interrupts_enabled(false);
-}
-
-/// initializes the uart interrupts logic. this function requires that interrupts are initialized.
-pub fn uart_init_interrupts() {
-    uart_enable_interrupts();
 }
 
 /// tries to read a single byte of input from the uart. return `None` if there is not input byte currently available.
@@ -147,8 +143,10 @@ impl Future for UartReadByte {
     type Output = u8;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        println!("polling uart read");
         // if not already registered, register ourselves for waking up when a byte is received on the uart.
         if !self.is_registered {
+            println!("registering uart read");
             let mut waker = UART_READ_WAKER.lock();
 
             // make sure that we are the only reader. 2 concurrent readers are not allowed.
