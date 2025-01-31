@@ -105,12 +105,24 @@ pub fn uart_init() {
     }));
 }
 
-/// initializes the uart interrupts logic. this function requires that interrupts are initialized.
-pub fn uart_init_interrupts() {
+fn uart_set_interrupts_enabled(enabled: bool) {
     // enable the uart interrupts
     let mut status = Cp0RegStatus::read();
-    status.interrupt_mask_mut().set_tty2(true);
+    status.interrupt_mask_mut().set_tty2(enabled);
     Cp0RegStatus::write(status);
+}
+
+fn uart_enable_interrupts() {
+    uart_set_interrupts_enabled(true);
+}
+
+fn uart_disable_interrupts() {
+    uart_set_interrupts_enabled(false);
+}
+
+/// initializes the uart interrupts logic. this function requires that interrupts are initialized.
+pub fn uart_init_interrupts() {
+    uart_enable_interrupts();
 }
 
 /// tries to read a single byte of input from the uart. return `None` if there is not input byte currently available.
@@ -150,7 +162,12 @@ impl Future for UartReadByte {
         // try sampling the hardware to see if we have a byte available
         match uart_try_read_byte() {
             Some(byte) => Poll::Ready(byte),
-            None => Poll::Pending,
+            None => {
+                // no byte currently available, enable interrupts so that we will wake up once the byte is available.
+                uart_enable_interrupts();
+
+                Poll::Pending
+            }
         }
     }
 }
@@ -167,10 +184,17 @@ impl Drop for UartReadByte {
 static UART_READ_WAKER: IrqSpinlock<Option<Waker>> = IrqSpinlock::new(None);
 
 pub fn uart_interrupt_handler() {
+    println!("got uart interrupt");
     let waker_data = UART_READ_WAKER.lock();
     if let Some(waker) = &*waker_data {
         waker.wake_by_ref();
     }
+
+    // disable interrupts until we read the byte.
+    //
+    // we do this because the UART will keep holding its interrupt line until we read the content, but we don't want to read it
+    // immediately.
+    uart_disable_interrupts();
 }
 
 /// writes a single byte to the uart.

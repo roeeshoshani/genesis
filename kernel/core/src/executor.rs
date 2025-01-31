@@ -1,6 +1,7 @@
 use core::{
     cell::UnsafeCell,
     future::Future,
+    mem::ManuallyDrop,
     ops::Deref,
     pin::Pin,
     ptr::null,
@@ -80,28 +81,29 @@ impl Executor {
     pub fn is_empty(&self) -> bool {
         self.tasks.is_empty()
     }
-
-    pub fn wake_up(&mut self, waker_data: *const ()) {
-        todo!()
-    }
 }
 
 pub static EXECUTOR: IrqSpinlock<Executor> = IrqSpinlock::new(Executor::new());
 
 unsafe fn vtable_clone(data: *const ()) -> RawWaker {
-    todo!();
+    let task = ManuallyDrop::new(Arc::from_raw(data as *const Task));
+    let cloned_task = task.deref().clone();
+
+    RawWaker::new(Arc::into_raw(cloned_task).cast(), &WAKER_VTABLE)
 }
 
 unsafe fn vtable_wake(data: *const ()) {
-    todo!();
+    let task = Arc::from_raw(data as *const Task);
+    task.should_be_polled.store(true, Ordering::Relaxed);
 }
 
 unsafe fn vtable_wake_by_ref(data: *const ()) {
-    todo!();
+    let task = ManuallyDrop::new(Arc::from_raw(data as *const Task));
+    task.deref().should_be_polled.store(true, Ordering::Relaxed);
 }
 
 unsafe fn vtable_drop(data: *const ()) {
-    todo!();
+    drop(Arc::from_raw(data as *const Task));
 }
 
 static WAKER_VTABLE: RawWakerVTable =
