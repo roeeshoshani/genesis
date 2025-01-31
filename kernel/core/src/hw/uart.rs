@@ -106,7 +106,6 @@ pub fn uart_init() {
 }
 
 fn uart_set_interrupts_enabled(enabled: bool) {
-    println!("setting uart interrupts to: {}", enabled);
     // enable the uart interrupts
     let mut status = Cp0RegStatus::read();
     status.interrupt_mask_mut().set_tty2(enabled);
@@ -143,10 +142,8 @@ impl Future for UartReadByte {
     type Output = u8;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        println!("polling uart read");
         // if not already registered, register ourselves for waking up when a byte is received on the uart.
         if !self.is_registered {
-            println!("registering uart read");
             let mut waker = UART_READ_WAKER.lock();
 
             // make sure that we are the only reader. 2 concurrent readers are not allowed.
@@ -182,7 +179,6 @@ impl Drop for UartReadByte {
 static UART_READ_WAKER: IrqSpinlock<Option<Waker>> = IrqSpinlock::new(None);
 
 pub fn uart_interrupt_handler() {
-    println!("got uart interrupt");
     let waker_data = UART_READ_WAKER.lock();
     if let Some(waker) = &*waker_data {
         waker.wake_by_ref();

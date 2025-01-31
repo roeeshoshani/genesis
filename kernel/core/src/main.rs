@@ -46,13 +46,10 @@ fn poll_executor() -> bool {
 fn main_loop() -> ! {
     spawn_initial_tasks();
     loop {
-        println!("polling");
         if poll_executor() {
             break;
         }
-        println!("done polling");
         wait_for_interrupt();
-        println!("done waiting for interrupt");
     }
     todo!("shutdown the device");
 }
