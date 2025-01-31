@@ -213,17 +213,6 @@ extern "C" fn general_exception_handler() {
     let cause = Cp0RegCause::read();
     let pending = cause.pending_interrupts();
 
-    // we do not support software interrupts
-    if pending.software0()
-        || pending.software1()
-        || pending.piix4_smi()
-        || pending.corehi()
-        || pending.corelo()
-        || pending.timer()
-    {
-        panic!("received unsupported interrupts: {:?}", pending.to_fields());
-    }
-
     if pending.tty2() {
         uart_interrupt_handler();
     }
