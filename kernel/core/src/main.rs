@@ -6,13 +6,12 @@
 extern crate alloc;
 
 use core::panic::PanicInfo;
-use executor::Executor;
+use executor::EXECUTOR;
 use hw::{
     interrupts::{interrupts_disable, interrupts_enable, interrupts_init, wait_for_interrupt},
-    uart::{uart_init, uart_init_interrupts},
+    uart::{uart_init, uart_init_interrupts, uart_read_byte},
 };
 use mem::page_alloc::page_allocator_init;
-use sync::IrqSpinlock;
 
 pub mod executor;
 pub mod hw;
@@ -27,12 +26,13 @@ fn panic(info: &PanicInfo) -> ! {
     loop {}
 }
 
-pub static EXECUTOR: IrqSpinlock<Executor> = IrqSpinlock::new(Executor::new());
-
 fn spawn_initial_tasks() {
     let mut executor = EXECUTOR.lock();
     executor.spawn(async {
-        println!("hello world!!!");
+        loop {
+            let byte = uart_read_byte().await;
+            println!("received uart byte: {}", byte);
+        }
     });
 }
 

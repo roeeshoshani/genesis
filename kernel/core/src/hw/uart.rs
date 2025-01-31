@@ -3,7 +3,7 @@ use core::{
     pin::Pin,
     ptr::null_mut,
     sync::atomic::{AtomicPtr, Ordering},
-    task::{Context, Poll, Waker},
+    task::{Context, Poll, RawWakerVTable, Waker},
 };
 
 use bitpiece::*;
@@ -12,7 +12,7 @@ use hal::{
     sys::{Cp0Reg, Cp0RegStatus},
 };
 
-use crate::executor::{TaskTrait, WakerData};
+use crate::{executor::EXECUTOR, sync::IrqSpinlock};
 
 #[macro_export]
 macro_rules! print {
@@ -134,13 +134,17 @@ pub struct UartReadByte {
 impl Future for UartReadByte {
     type Output = u8;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // if not already registered, register ourselves for waking up when a byte is received on the uart.
         if !self.is_registered {
-            let prev_ptr =
-                UART_READER_TASK_WAKER_DATA.swap(cx.waker().data().cast_mut(), Ordering::Relaxed);
+            let mut waker = UART_READ_WAKER.lock();
+
             // make sure that we are the only reader. 2 concurrent readers are not allowed.
-            assert!(prev_ptr.is_null());
+            assert!(waker.is_none());
+
+            *waker = Some(cx.waker().clone());
+
+            self.is_registered = true;
         }
 
         // try sampling the hardware to see if we have a byte available
@@ -150,12 +154,22 @@ impl Future for UartReadByte {
         }
     }
 }
+impl Drop for UartReadByte {
+    fn drop(&mut self) {
+        if self.is_registered {
+            // unregister ourselves
+            let mut waker = UART_READ_WAKER.lock();
+            *waker = None;
+        }
+    }
+}
 
-static UART_READER_TASK_WAKER_DATA: AtomicPtr<()> = AtomicPtr::new(null_mut());
+static UART_READ_WAKER: IrqSpinlock<Option<Waker>> = IrqSpinlock::new(None);
 
 pub fn uart_interrupt_handler() {
-    while let Some(byte) = uart_try_read_byte() {
-        println!("uart received byte: {:?}", byte);
+    let waker_data = UART_READ_WAKER.lock();
+    if let Some(waker) = &*waker_data {
+        waker.wake_by_ref();
     }
 }
 
