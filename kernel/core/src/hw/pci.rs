@@ -180,6 +180,10 @@ impl PciId {
         vendor_id: 0x11ab,
         device_id: 0x4620,
     };
+    pub const AM79C970: Self = Self {
+        vendor_id: 0x1022,
+        device_id: 0x2000,
+    };
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -396,7 +400,8 @@ impl PciBarReg {
     pub fn is_mapped_to_memory(&self) -> bool {
         self.address() != 0
     }
-    pub fn map_to_memory(&self) {
+
+    pub fn map_to_memory(&self) -> MappedBar {
         // TODO: time of check time of use here. what if someone maps the BAR to memory between the time we check
         // and then time we actually map it?
         assert!(!self.is_mapped_to_memory());
@@ -406,11 +411,25 @@ impl PciBarReg {
             PciBarKind::Mem => &PCI_MEM_SPACE_ALLOCATOR,
             PciBarKind::Io => &PCI_IO_SPACE_ALLOCATOR,
         };
+
+        let size = self.size() as usize;
+
         let base_addr = allocator
-            .alloc(self.size() as usize)
+            .alloc(size)
             .expect("failed to allocate address space for PCI BAR");
+
         self.set_address(base_addr.0 as u32);
+
+        MappedBar {
+            addr: base_addr,
+            size,
+        }
     }
+}
+
+pub struct MappedBar {
+    pub addr: PhysAddr,
+    pub size: usize,
 }
 
 #[bitpiece(32)]
@@ -683,6 +702,19 @@ impl<F: FnMut(PciFunction)> PciScanner<F> {
 pub fn pci_scan<F: FnMut(PciFunction)>(callback: F) {
     let mut scanner = PciScanner::new(callback);
     scanner.scan();
+}
+
+pub fn pci_find(id: PciId) -> Option<PciFunction> {
+    let mut result = None;
+    pci_scan(|pci_function| {
+        if pci_function.id() == id {
+            // there shouldn't be two pci functions with the same id
+            assert!(result.is_none());
+
+            result = Some(pci_function);
+        }
+    });
+    result
 }
 
 pub struct Piix4CorePciFunction {
