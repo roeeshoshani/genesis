@@ -192,12 +192,22 @@ pub fn uart_interrupt_handler() {
 }
 
 /// writes a single byte to the uart.
-fn uart_write_byte(byte: u8) {
+fn uart_write_byte_raw(byte: u8) {
     while !UartRegs::line_status()
         .read()
         .is_transmitter_holding_register_empty()
     {}
     UartRegs::tx().write(byte)
+}
+
+/// writes a single byte to the uart.
+fn uart_write_byte(byte: u8) {
+    if byte == b'\n' || byte == b'\r' {
+        uart_write_byte_raw(b'\r');
+        uart_write_byte_raw(b'\n');
+    } else {
+        uart_write_byte_raw(byte);
+    }
 }
 
 pub async fn uart_task() {
@@ -211,12 +221,7 @@ struct UartWriter;
 impl core::fmt::Write for UartWriter {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         for byte in s.bytes() {
-            if byte == b'\n' {
-                uart_write_byte(b'\r');
-                uart_write_byte(b'\n');
-            } else {
-                uart_write_byte(byte);
-            }
+            uart_write_byte(byte);
         }
         Ok(())
     }
