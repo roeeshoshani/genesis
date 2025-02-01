@@ -200,6 +200,13 @@ fn uart_write_byte(byte: u8) {
     UartRegs::tx().write(byte)
 }
 
+pub async fn uart_task() {
+    loop {
+        let byte = uart_read_byte().await;
+        uart_write_byte(byte);
+    }
+}
+
 struct UartWriter;
 impl core::fmt::Write for UartWriter {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
