@@ -2,6 +2,7 @@ use core::{marker::PhantomData, ptr::NonNull};
 
 use bitpiece::*;
 use hal::mem::VirtAddr;
+use static_assertions::const_assert_eq;
 use volatile::{
     access::{Access, ReadOnly, ReadWrite},
     VolatilePtr,
@@ -16,6 +17,8 @@ use super::{
 
 const NIC_BAR_SIZE: usize = 0x20;
 const NIC_APROM_SIZE: usize = 16;
+
+pub const ETH_ADDR_LEN: usize = 6;
 
 pub fn nic_init() {
     let Some(dev) = pci_find(PciId::AM79C970) else {
@@ -45,6 +48,121 @@ pub fn nic_init() {
 
     // make sure that the device uses 32-bit software structures. we currently don't support the 16-bit mode.
     assert!(regs.bcr20().read().software_size_32());
+}
+
+#[repr(transparent)]
+pub struct EthAddr(pub [u8; ETH_ADDR_LEN]);
+
+#[repr(C)]
+pub struct NicInitBlock {
+    pub mode: NicMode,
+    pub rx_ring_entries_amount: RingEntriesAmount,
+    pub tx_ring_entries_amount: RingEntriesAmount,
+    pub phys_addr: EthAddr,
+    pub reserved: u16,
+    pub logical_addr_filter: [u8; 8],
+    pub rx_ring_addr: u32,
+    pub tx_ring_addr: u32,
+}
+
+// the initialization block should be 7 dwords in size.
+const_assert_eq!(size_of::<NicInitBlock>(), 7 * 4);
+
+#[repr(C)]
+pub struct NicRxDesc {
+    pub buf_addr: u32,
+    pub status1: NicRxDescStatus1,
+    pub status2: NicRxDescStatus2,
+    pub reserved: u32,
+}
+
+// the rx desc should be 4 dwords in size.
+const_assert_eq!(size_of::<NicRxDesc>(), 4 * 4);
+
+#[repr(C)]
+pub struct NicTxDesc {
+    pub buf_addr: u32,
+    pub status1: NicTxDescStatus1,
+    pub status2: NicTxDescStatus2,
+    pub reserved: u32,
+}
+
+#[bitpiece(32)]
+pub struct NicTxDescStatus1 {
+    pub buf_len_2s_complement: B12,
+    pub ones: B4,
+    pub reserved16: u8,
+    pub end_of_packet: bool,
+    pub start_of_packet: bool,
+    pub deferred: bool,
+    pub only_one_retry_needed: bool,
+    pub more_than_one_retry_needed: bool,
+    pub no_fcs_or_add_fcs: bool,
+    pub any_err: bool,
+    pub is_owned_by_nic: bool,
+}
+
+#[bitpiece(32)]
+pub struct NicTxDescStatus2 {
+    pub tx_retry_count: B4,
+    pub reserved4: B12,
+    pub time_domain_reflectometry: B10,
+    pub retry_err: bool,
+    pub loss_of_carrier: bool,
+    pub late_collision: bool,
+    pub excessive_deferral: bool,
+    pub underflow_err: bool,
+    pub buf_err: bool,
+}
+
+#[bitpiece(32)]
+pub struct NicRxDescStatus1 {
+    pub buf_len_2s_complement: B12,
+    pub ones: B4,
+    pub reserved16: u8,
+    pub end_of_packet: bool,
+    pub start_of_packet: bool,
+    pub buf_err: bool,
+    pub crc_err: bool,
+    pub overflow_err: bool,
+    pub framing_err: bool,
+    pub any_err: bool,
+    pub is_owned_by_nic: bool,
+}
+
+#[bitpiece(32)]
+pub struct NicRxDescStatus2 {
+    pub msg_len: B12,
+    pub reserved12: B4,
+    pub runt_packet_count: u8,
+    pub rx_collision_count: u8,
+}
+
+#[bitpiece(8)]
+pub struct RingEntriesAmount {
+    pub reserved0: B4,
+    pub val: RingEntriesAmountVal,
+}
+
+#[bitpiece(4)]
+#[derive(Debug, Clone, Copy)]
+pub enum RingEntriesAmountVal {
+    N1 = 0,
+    N2 = 1,
+    N4 = 2,
+    N8 = 3,
+    N16 = 4,
+    N32 = 5,
+    N64 = 6,
+    N128 = 7,
+    N256 = 8,
+    N512 = 9,
+    Reserved10 = 10,
+    Reserved11 = 11,
+    Reserved12 = 12,
+    Reserved13 = 13,
+    Reserved14 = 14,
+    Reserved15 = 15,
 }
 
 pub struct NicRegs {
@@ -311,6 +429,12 @@ pub struct NicCsr14 {
 
 #[bitpiece(32)]
 pub struct NicCsr15 {
+    pub mode: NicMode,
+    pub reserved16: u16,
+}
+
+#[bitpiece(16)]
+pub struct NicMode {
     pub disable_rx: bool,
     pub disable_tx: bool,
     pub enable_loopback: bool,
@@ -326,7 +450,6 @@ pub struct NicCsr15 {
     pub disable_phys_addr_detection: bool,
     pub disable_rx_broadcast: bool,
     pub promisc: bool,
-    pub reserved16: u16,
 }
 
 #[bitpiece(32)]
