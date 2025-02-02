@@ -1,3 +1,5 @@
+pub mod async_event;
+
 use core::{
     future::Future,
     pin::Pin,
