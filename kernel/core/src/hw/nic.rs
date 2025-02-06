@@ -1,5 +1,6 @@
-use core::{marker::PhantomData, ptr::NonNull};
+use core::{marker::PhantomData, pin::Pin, ptr::NonNull};
 
+use alloc::boxed::Box;
 use bitpiece::*;
 use hal::mem::VirtAddr;
 use static_assertions::const_assert_eq;
@@ -8,7 +9,7 @@ use volatile::{
     VolatilePtr,
 };
 
-use crate::{hw::pci::PciBarKind, println};
+use crate::{hw::pci::PciBarKind, mem::phys_alloc, println};
 
 use super::{
     interrupts::with_interrupts_disabled,
@@ -19,6 +20,18 @@ const NIC_BAR_SIZE: usize = 0x20;
 const NIC_APROM_SIZE: usize = 16;
 
 pub const ETH_ADDR_LEN: usize = 6;
+
+const NIC_RX_RING_ENTRIES_AMOUNT: RingEntriesAmountVal = RingEntriesAmountVal::N512;
+const NIC_TX_RING_ENTRIES_AMOUNT: RingEntriesAmountVal = RingEntriesAmountVal::N512;
+const NIC_RX_RING_SIZE: usize = NIC_RX_RING_ENTRIES_AMOUNT.value();
+const NIC_TX_RING_SIZE: usize = NIC_TX_RING_ENTRIES_AMOUNT.value();
+
+const NIC_LOGICAL_ADDR_FILTER_SIZE: usize = 8;
+
+pub const ETH_MAX_MTU: usize = 1500;
+pub const ETH_HDR_LEN: usize = ETH_ADDR_LEN * 2 + 2;
+
+const NIC_BUF_SIZE: usize = ETH_MAX_MTU + ETH_HDR_LEN;
 
 pub fn nic_init() {
     let Some(dev) = pci_find(PciId::AM79C970) else {
@@ -48,47 +61,142 @@ pub fn nic_init() {
 
     // make sure that the device uses 32-bit software structures. we currently don't support the 16-bit mode.
     assert!(regs.bcr20().read().software_size_32());
+
+    let mut rx_bufs = RxRingBufs(core::array::from_fn(|_| {
+        Box::pin(NicBuf([0; NIC_BUF_SIZE]))
+    }));
+    let mut rx_ring = Box::pin(RxRing {
+        descs: core::array::from_fn(|i| {
+            let buf_mut = &mut *rx_bufs.0[i];
+            let buf_virt_addr = VirtAddr(buf_mut as *mut NicBuf as usize);
+            let buf_phys_addr = buf_virt_addr.kseg_cachable_phys_addr().unwrap();
+            RxDesc {
+                buf_addr: buf_phys_addr.0 as u32,
+                status1: RxDescStatus1::from_fields(RxDescStatus1Fields {
+                    buf_len_2s_complement: BitPiece::from_bits(
+                        (NIC_BUF_SIZE as u16).wrapping_neg(),
+                    ),
+                    ones: BitPiece::ones(),
+                    reserved16: BitPiece::zeroes(),
+                    end_of_packet: false,
+                    start_of_packet: false,
+                    buf_err: false,
+                    crc_err: false,
+                    overflow_err: false,
+                    framing_err: false,
+                    any_err: false,
+                    is_owned_by_nic: true,
+                }),
+                status2: RxDescStatus2::zeroes(),
+                reserved: BitPiece::zeroes(),
+            }
+        }),
+    });
+    let rx_ring_addr = &mut *rx_ring as *mut RxRing as usize;
+
+    let init_block_content = InitBlock {
+        mode: NicMode::from_fields(NicModeFields {
+            disable_rx: false,
+            disable_tx: false,
+            enable_loopback: false,
+            disable_tx_fcs: false,
+            force_collision: false,
+            disable_retry: false,
+            internal_loopback: false,
+            port_select: NicPortSelect::S10BaseT,
+            tsel_or_lrt: false,
+            mendec_loopback: false,
+            disable_polarity_correction: false,
+            disable_link_status: false,
+            disable_phys_addr_detection: false,
+            disable_rx_broadcast: false,
+            promisc: false,
+        }),
+        rx_ring_entries_amount: RingEntriesAmount::from_fields(RingEntriesAmountFields {
+            reserved0: BitPiece::zeroes(),
+            val: NIC_RX_RING_ENTRIES_AMOUNT,
+        }),
+        tx_ring_entries_amount: RingEntriesAmount::from_fields(RingEntriesAmountFields {
+            reserved0: BitPiece::zeroes(),
+            val: NIC_TX_RING_ENTRIES_AMOUNT,
+        }),
+        phys_addr: EthAddr([0x44; ETH_ADDR_LEN]),
+        reserved: BitPiece::zeroes(),
+        logical_addr_filter: [0u8; NIC_LOGICAL_ADDR_FILTER_SIZE],
+        rx_ring_addr: todo!(),
+        tx_ring_addr: todo!(),
+    };
+    let init_block = Box::pin(init_block_content);
+    let init_block_addr = &mut *init_block as *mut InitBlock as usize;
+
+    regs.csr1().write(NicCsr1::from_fields(NicCsr1Fields {
+        init_block_addr_low: (init_block_addr & 0xffff) as u16,
+        reserved16: BitPiece::zeroes(),
+    }));
+    regs.csr2().write(NicCsr2::from_fields(NicCsr2Fields {
+        init_block_addr_high: ((init_block_addr >> 16) & 0xffff) as u16,
+        reserved16: BitPiece::zeroes(),
+    }));
 }
+
+pub struct Nic {
+    init_block_storage: Option<Pin<Box<InitBlock>>>,
+    rx_buffers: [Pin<Box<NicBuf>>; NIC_RX_RING_SIZE],
+    tx_buffers: [Pin<Box<NicBuf>>; NIC_TX_RING_SIZE],
+    rx_ring_storage: Pin<Box<RxRing>>,
+    tx_ring_storage: Pin<Box<RxRing>>,
+}
+
+#[repr(transparent)]
+struct NicBuf([u8; NIC_BUF_SIZE]);
+
+#[repr(transparent)]
+struct RxRing {
+    descs: [RxDesc; NIC_RX_RING_SIZE],
+}
+
+struct RxRingBufs([Pin<Box<NicBuf>>; NIC_RX_RING_SIZE]);
+struct TxRingBufs([Pin<Box<NicBuf>>; NIC_TX_RING_SIZE]);
 
 #[repr(transparent)]
 pub struct EthAddr(pub [u8; ETH_ADDR_LEN]);
 
 #[repr(C)]
-pub struct NicInitBlock {
+struct InitBlock {
     pub mode: NicMode,
     pub rx_ring_entries_amount: RingEntriesAmount,
     pub tx_ring_entries_amount: RingEntriesAmount,
     pub phys_addr: EthAddr,
     pub reserved: u16,
-    pub logical_addr_filter: [u8; 8],
+    pub logical_addr_filter: [u8; NIC_LOGICAL_ADDR_FILTER_SIZE],
     pub rx_ring_addr: u32,
     pub tx_ring_addr: u32,
 }
 
 // the initialization block should be 7 dwords in size.
-const_assert_eq!(size_of::<NicInitBlock>(), 7 * 4);
+const_assert_eq!(size_of::<InitBlock>(), 7 * 4);
 
 #[repr(C)]
-pub struct NicRxDesc {
+struct RxDesc {
     pub buf_addr: u32,
-    pub status1: NicRxDescStatus1,
-    pub status2: NicRxDescStatus2,
+    pub status1: RxDescStatus1,
+    pub status2: RxDescStatus2,
     pub reserved: u32,
 }
 
 // the rx desc should be 4 dwords in size.
-const_assert_eq!(size_of::<NicRxDesc>(), 4 * 4);
+const_assert_eq!(size_of::<RxDesc>(), 4 * 4);
 
 #[repr(C)]
-pub struct NicTxDesc {
+struct TxDesc {
     pub buf_addr: u32,
-    pub status1: NicTxDescStatus1,
-    pub status2: NicTxDescStatus2,
+    pub status1: TxDescStatus1,
+    pub status2: TxDescStatus2,
     pub reserved: u32,
 }
 
 #[bitpiece(32)]
-pub struct NicTxDescStatus1 {
+struct TxDescStatus1 {
     pub buf_len_2s_complement: B12,
     pub ones: B4,
     pub reserved16: u8,
@@ -103,7 +211,7 @@ pub struct NicTxDescStatus1 {
 }
 
 #[bitpiece(32)]
-pub struct NicTxDescStatus2 {
+struct TxDescStatus2 {
     pub tx_retry_count: B4,
     pub reserved4: B12,
     pub time_domain_reflectometry: B10,
@@ -116,7 +224,7 @@ pub struct NicTxDescStatus2 {
 }
 
 #[bitpiece(32)]
-pub struct NicRxDescStatus1 {
+struct RxDescStatus1 {
     pub buf_len_2s_complement: B12,
     pub ones: B4,
     pub reserved16: u8,
@@ -131,7 +239,7 @@ pub struct NicRxDescStatus1 {
 }
 
 #[bitpiece(32)]
-pub struct NicRxDescStatus2 {
+struct RxDescStatus2 {
     pub msg_len: B12,
     pub reserved12: B4,
     pub runt_packet_count: u8,
@@ -163,6 +271,23 @@ pub enum RingEntriesAmountVal {
     Reserved13 = 13,
     Reserved14 = 14,
     Reserved15 = 15,
+}
+impl RingEntriesAmountVal {
+    pub const fn value(&self) -> usize {
+        match self {
+            RingEntriesAmountVal::N1 => 1,
+            RingEntriesAmountVal::N2 => 2,
+            RingEntriesAmountVal::N4 => 4,
+            RingEntriesAmountVal::N8 => 8,
+            RingEntriesAmountVal::N16 => 16,
+            RingEntriesAmountVal::N32 => 32,
+            RingEntriesAmountVal::N64 => 64,
+            RingEntriesAmountVal::N128 => 128,
+            RingEntriesAmountVal::N256 => 256,
+            RingEntriesAmountVal::N512 => 512,
+            _ => unreachable!(),
+        }
+    }
 }
 
 pub struct NicRegs {
