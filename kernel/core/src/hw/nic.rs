@@ -98,6 +98,45 @@ pub fn nic_init() {
     let rx_ring_virt_addr = VirtAddr(&mut *rx_ring as *mut RxRing as usize);
     let rx_ring_phys_addr = rx_ring_virt_addr.kseg_cachable_phys_addr().unwrap();
 
+    // allocate buffers for tx descriptors
+    let mut tx_bufs = TxRingBufs(core::array::from_fn(|_| {
+        Box::pin(NicBuf([0; NIC_BUF_SIZE]))
+    }));
+
+    // build a ring of tx descriptors
+    let mut tx_ring = Box::pin(TxRing {
+        descs: core::array::from_fn(|i| {
+            let buf = &mut *tx_bufs.0[i];
+            let buf_virt_addr = VirtAddr(buf as *mut NicBuf as usize);
+            let buf_phys_addr = buf_virt_addr.kseg_cachable_phys_addr().unwrap();
+            TxDesc {
+                buf_addr: buf_phys_addr.0 as u32,
+                status1: TxDescStatus1::from_fields(TxDescStatus1Fields {
+                    buf_len_2s_complement: BitPiece::from_bits(
+                        (NIC_BUF_SIZE as u16).wrapping_neg(),
+                    ),
+                    ones: BitPiece::ones(),
+                    reserved16: BitPiece::zeroes(),
+                    end_of_packet: false,
+                    start_of_packet: false,
+                    deferred: false,
+                    only_one_retry_needed: false,
+                    more_than_one_retry_needed: false,
+                    // don't override the global FCS settings for this frame, use the global settings
+                    no_fcs_or_add_fcs: false,
+                    any_err: false,
+                    // the descriptor should not currently be owned by the nic. only when sending and filling it with data we will
+                    // move ownership to the nic.
+                    is_owned_by_nic: false,
+                }),
+                status2: TxDescStatus2::zeroes(),
+                reserved: BitPiece::zeroes(),
+            }
+        }),
+    });
+    let tx_ring_virt_addr = VirtAddr(&mut *tx_ring as *mut TxRing as usize);
+    let tx_ring_phys_addr = tx_ring_virt_addr.kseg_cachable_phys_addr().unwrap();
+
     // build the initialization block
     let mut init_block = Box::pin(InitBlock {
         mode: NicMode::from_fields(NicModeFields {
@@ -129,7 +168,7 @@ pub fn nic_init() {
         reserved: BitPiece::zeroes(),
         logical_addr_filter: [0u8; NIC_LOGICAL_ADDR_FILTER_SIZE],
         rx_ring_addr: rx_ring_phys_addr.0 as u32,
-        tx_ring_addr: 0,
+        tx_ring_addr: tx_ring_phys_addr.0 as u32,
     });
     let init_block_virt_addr = VirtAddr(&mut *init_block as *mut InitBlock as usize);
     let init_block_phys_addr = init_block_virt_addr.kseg_cachable_phys_addr().unwrap();
@@ -149,7 +188,7 @@ pub struct Nic {
     rx_buffers: [Pin<Box<NicBuf>>; NIC_RX_RING_SIZE],
     tx_buffers: [Pin<Box<NicBuf>>; NIC_TX_RING_SIZE],
     rx_ring_storage: Pin<Box<RxRing>>,
-    tx_ring_storage: Pin<Box<RxRing>>,
+    tx_ring_storage: Pin<Box<TxRing>>,
 }
 
 #[repr(transparent)]
@@ -158,6 +197,10 @@ struct NicBuf([u8; NIC_BUF_SIZE]);
 #[repr(transparent)]
 struct RxRing {
     descs: [RxDesc; NIC_RX_RING_SIZE],
+}
+#[repr(transparent)]
+struct TxRing {
+    descs: [TxDesc; NIC_RX_RING_SIZE],
 }
 
 struct RxRingBufs([Pin<Box<NicBuf>>; NIC_RX_RING_SIZE]);
