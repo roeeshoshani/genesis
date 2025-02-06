@@ -252,6 +252,9 @@ impl PciFunction {
     pub fn config_reg3(self) -> PciConfigRegTyped<PciConfigReg3> {
         PciConfigRegTyped::new(self.config_reg(3))
     }
+    pub fn config_reg15(self) -> PciConfigRegTyped<PciConfigReg15> {
+        PciConfigRegTyped::new(self.config_reg(15))
+    }
 
     /// checks if this pci function even exists.
     fn exists(self) -> bool {
@@ -550,6 +553,34 @@ pub struct PciConfigReg3 {
 
 #[bitpiece(32)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PciConfigReg15 {
+    /// the interrupt line that the device is connected to. this field is for software use only and is ignored by device.
+    /// it is used to store information about the actual irq line that the device is connected to, which depends on the interrupt
+    /// pin used by the device, and on the interrupt routing between pci irq numbers to actual irq numbers.
+    pub interrupt_line: u8,
+
+    /// the pci interrupt pin that the device uses. specifies which pci irq line this device uses - INTA, INTB, INTC or INTD.
+    pub interrupt_pin: PciInterruptPin,
+
+    /// this field's interpretation depends on the header type.
+    pub unknown: u16,
+}
+
+#[bitpiece(8)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PciInterruptPin {
+    value: u8,
+}
+impl PciInterruptPin {
+    pub const NO_INTERRUPT_PIN: Self = Self { storage: 0 };
+    pub const INTA: Self = Self { storage: 1 };
+    pub const INTB: Self = Self { storage: 2 };
+    pub const INTC: Self = Self { storage: 3 };
+    pub const INTD: Self = Self { storage: 4 };
+}
+
+#[bitpiece(32)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PciToPciBridgeConfigReg6 {
     pub primary_bus_num: u8,
     pub secondary_bus_num: u8,
@@ -625,6 +656,14 @@ impl<T: BitPiece<Bits = u32>> PciConfigRegTyped<T> {
     }
     pub fn write(self, value: T) {
         self.reg.write(value.to_bits());
+    }
+    pub fn modify<F>(self, modify: F)
+    where
+        F: FnOnce(&mut T),
+    {
+        let mut value = self.read();
+        modify(&mut value);
+        self.write(value);
     }
     pub fn reg(self) -> PciConfigReg {
         self.reg

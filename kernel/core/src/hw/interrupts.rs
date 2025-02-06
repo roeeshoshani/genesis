@@ -499,6 +499,16 @@ impl I8259Chain {
     pub fn get_mask(&self) -> u16 {
         Self::merge_slave_master_reg(self.master.get_mask(), self.slave.get_mask())
     }
+    pub fn get_irq_mask(&self, irq: u8) -> bool {
+        assert!(irq < Self::IRQ_LINES_AMOUNT as u8);
+        self.get_mask().get_bit(irq as usize)
+    }
+    pub fn set_irq_mask(&self, irq: u8, is_masked: bool) {
+        assert!(irq < Self::IRQ_LINES_AMOUNT as u8);
+        let mut mask = self.get_mask();
+        mask.set_bit(irq as usize, is_masked);
+        self.set_mask(mask);
+    }
 
     /// sends an end of interrupt to the interrupt controller chain, according to the given irq number of the interrupt.
     pub fn eoi(&self, irq_number: u8) {

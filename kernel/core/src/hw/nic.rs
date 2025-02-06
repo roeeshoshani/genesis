@@ -12,11 +12,14 @@ use volatile::{
     VolatilePtr,
 };
 
-use crate::{hw::pci::PciBarKind, println};
+use crate::{
+    hw::pci::{PciBarKind, PciInterruptPin},
+    println,
+};
 
 use super::{
-    interrupts::with_interrupts_disabled,
-    pci::{pci_find, PciFunction, PciId},
+    interrupts::{with_interrupts_disabled, I8259Chain, PCI_INTA_IRQ, PIIX4_I8259_CHAIN},
+    pci::{pci_find, PciId},
 };
 
 const NIC_BAR_SIZE: usize = 0x20;
@@ -44,17 +47,29 @@ pub fn nic_init() -> Option<Nic> {
         return None;
     };
 
+    // configure the pci command register of the device
+    dev.config_reg1().modify(|reg| {
+        // enable io for this device so that we can access its io bar.
+        reg.command_mut().set_io_enable(true);
+
+        // enable bus master support so that the device can generate interrupts and dma cycles.
+        reg.command_mut().set_bus_master_enable(true);
+    });
+
+    // configure the nic to use the pci INTA irq line
+    dev.config_reg15().modify(|reg| {
+        reg.set_interrupt_pin(PciInterruptPin::INTA);
+    });
+
+    // unmask the pci INTA irq so that we can receive interrupts from the nic
+    PIIX4_I8259_CHAIN.set_irq_mask(PCI_INTA_IRQ, false);
+
     let bar = dev.bar(0).unwrap();
     let mapped_bar = bar.map_to_memory();
 
     // sanity
     assert_eq!(bar.kind(), PciBarKind::Io);
     assert_eq!(mapped_bar.size, NIC_BAR_SIZE);
-
-    // enable io for this device so that we can access its io bar.
-    let mut reg1 = dev.config_reg1().read();
-    reg1.command_mut().set_io_enable(true);
-    dev.config_reg1().write(reg1);
 
     let mut regs = NicRegs {
         addr: mapped_bar.addr.kseg_cachable_addr().unwrap(),
@@ -66,9 +81,6 @@ pub fn nic_init() -> Option<Nic> {
 
     // make sure that the device uses 32-bit software structures. we currently don't support the 16-bit mode.
     assert!(regs.bcr20().read().software_size_32());
-
-    // enable piix4 INTR interrupts so that we can receive interrupts from the NIC.
-    enable_piix4_intr_interrupts();
 
     // allocate buffers for rx descriptors
     let mut rx_bufs = RxRingBufs(core::array::from_fn(|_| {
@@ -221,12 +233,6 @@ pub struct Nic {
     tx_bufs: TxRingBufs,
     rx_ring_storage: Pin<Box<RxRing>>,
     tx_ring_storage: Pin<Box<TxRing>>,
-}
-
-fn enable_piix4_intr_interrupts() {
-    let mut status = Cp0RegStatus::read();
-    status.interrupt_mask_mut().set_piix4_intr(true);
-    Cp0RegStatus::write(status);
 }
 
 #[repr(transparent)]
