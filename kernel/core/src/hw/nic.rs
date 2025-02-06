@@ -9,7 +9,7 @@ use volatile::{
     VolatilePtr,
 };
 
-use crate::{hw::pci::PciBarKind, mem::phys_alloc, println};
+use crate::{hw::pci::PciBarKind, println};
 
 use super::{
     interrupts::with_interrupts_disabled,
@@ -32,6 +32,8 @@ pub const ETH_MAX_MTU: usize = 1500;
 pub const ETH_HDR_LEN: usize = ETH_ADDR_LEN * 2 + 2;
 
 const NIC_BUF_SIZE: usize = ETH_MAX_MTU + ETH_HDR_LEN;
+
+pub const NIC_ETH_ADDR: EthAddr = EthAddr([0x44; ETH_ADDR_LEN]);
 
 pub fn nic_init() {
     let Some(dev) = pci_find(PciId::AM79C970) else {
@@ -164,7 +166,7 @@ pub fn nic_init() {
             reserved0: BitPiece::zeroes(),
             val: NIC_TX_RING_ENTRIES_AMOUNT,
         }),
-        phys_addr: EthAddr([0x44; ETH_ADDR_LEN]),
+        phys_addr: NIC_ETH_ADDR,
         reserved: BitPiece::zeroes(),
         logical_addr_filter: [0u8; NIC_LOGICAL_ADDR_FILTER_SIZE],
         rx_ring_addr: rx_ring_phys_addr.0 as u32,
@@ -175,11 +177,27 @@ pub fn nic_init() {
 
     regs.csr1().write(NicCsr1::from_fields(NicCsr1Fields {
         init_block_addr_low: (init_block_phys_addr.0 & 0xffff) as u16,
-        reserved16: BitPiece::zeroes(),
     }));
     regs.csr2().write(NicCsr2::from_fields(NicCsr2Fields {
         init_block_addr_high: ((init_block_phys_addr.0 >> 16) & 0xffff) as u16,
-        reserved16: BitPiece::zeroes(),
+    }));
+    regs.csr0().write(NicCsr0::from_fields(NicCsr0Fields {
+        init: true,
+        start: true,
+        stop: false,
+        transmit_demand: false,
+        tx_on: true,
+        rx_on: true,
+        interrupts_enabled: true,
+        interrupt_pending: false,
+        initialization_done: false,
+        tx_interrupt: true,
+        rx_interrupt: true,
+        mem_err: false,
+        missed_frame: false,
+        collision_err: false,
+        tx_timeout_err: false,
+        any_err: false,
     }));
 }
 
@@ -406,7 +424,7 @@ impl NicRegs {
     pub fn bdp(&mut self) -> VolatilePtr<u32, ReadWrite> {
         self.reg_rw(0x1c)
     }
-    pub fn csr<T: BitPiece<Bits = u32>>(&mut self, index: u8) -> NicCsr<T> {
+    pub fn csr<T: BitPiece<Bits = u16>>(&mut self, index: u8) -> NicCsr<T> {
         NicCsr {
             csr_index: index,
             nic_regs: self,
@@ -429,7 +447,7 @@ impl NicRegs {
             self.rdp().write(value)
         }
     }
-    pub fn bcr<T: BitPiece<Bits = u32>>(&mut self, index: u8) -> NicBcr<T> {
+    pub fn bcr<T: BitPiece<Bits = u16>>(&mut self, index: u8) -> NicBcr<T> {
         NicBcr {
             bcr_index: index,
             nic_regs: self,
@@ -478,7 +496,7 @@ impl NicRegs {
     }
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr0 {
     pub init: bool,
     pub start: bool,
@@ -496,22 +514,19 @@ pub struct NicCsr0 {
     pub collision_err: bool,
     pub tx_timeout_err: bool,
     pub any_err: bool,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr1 {
     pub init_block_addr_low: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr2 {
     pub init_block_addr_high: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr3 {
     pub reserved0: B2,
     pub endianness: NicEndianness,
@@ -527,10 +542,9 @@ pub struct NicCsr3 {
     pub reserved13: B1,
     pub tx_timeout_err_interrupt_mask: bool,
     pub reserved15: B1,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr4 {
     pub jabber_err_interrupt_mask: bool,
     pub jabber_err: bool,
@@ -547,63 +561,53 @@ pub struct NicCsr4 {
     pub timer_enable: bool,
     pub dma_plus: bool,
     pub enable_test_mode: bool,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr6 {
     pub reserved0: u8,
     pub rx_ring_len: B4,
     pub tx_ring_len: B4,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr8 {
     pub addr_filter_0_16: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr9 {
     pub addr_filter_16_32: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr10 {
     pub addr_filter_32_48: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr11 {
     pub addr_filter_48_64: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr12 {
     pub phys_addr_0_16: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr13 {
     pub phys_addr_16_32: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr14 {
     pub phys_addr_32_48: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr15 {
     pub mode: NicMode,
-    pub reserved16: u16,
 }
 
 #[bitpiece(16)]
@@ -625,203 +629,172 @@ pub struct NicMode {
     pub promisc: bool,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr18 {
     pub rx_buf_addr_low: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr19 {
     pub rx_buf_addr_high: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr20 {
     pub tx_buf_addr_low: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr21 {
     pub tx_buf_addr_high: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr22 {
     pub next_rx_buf_addr_low: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr23 {
     pub next_rx_buf_addr_high: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr24 {
     pub rx_ring_addr_low: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr25 {
     pub rx_ring_addr_high: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr26 {
     pub next_rx_desc_addr_low: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr27 {
     pub next_rx_desc_addr_high: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr28 {
     pub rx_desc_addr_low: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr29 {
     pub rx_desc_addr_high: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr30 {
     pub tx_ring_addr_low: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr31 {
     pub tx_ring_addr_high: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr32 {
     pub next_tx_desc_addr_low: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr33 {
     pub next_tx_desc_addr_high: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr34 {
     pub tx_desc_addr_low: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr35 {
     pub tx_desc_addr_high: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr36 {
     pub next_next_rx_desc_addr_low: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr37 {
     pub next_next_rx_desc_addr_high: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr38 {
     pub next_next_tx_desc_addr_low: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr39 {
     pub next_next_tx_desc_addr_high: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr40 {
     pub rx_byte_count: B12,
     pub reserved12: B4,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr41 {
     pub reserved0: u8,
     pub rx_status: u8,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr42 {
     pub tx_byte_count: B12,
     pub reserved12: B4,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr43 {
     pub reserved0: u8,
     pub tx_status: u8,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr44 {
     pub next_rx_byte_count: B12,
     pub reserved12: B4,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr45 {
     pub reserved0: u8,
     pub next_rx_status: u8,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr46 {
     pub poll_time_counter: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr47 {
     pub poll_interval: u16,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 pub struct NicCsr58 {
     pub software_style: NicSoftwareStyle,
     pub reserved2: B6,
     pub software_size_32_bits: bool,
     pub csr_pcnet_isa: bool,
     pub reserved10: B6,
-    pub reserved16: u16,
 }
 
-#[bitpiece(32)]
+#[bitpiece(16)]
 #[derive(Debug)]
 pub struct NicBcr20 {
     pub software_style: NicSoftwareStyle,
@@ -829,7 +802,6 @@ pub struct NicBcr20 {
     pub software_size_32: bool,
     pub csr_pcnet_isa: bool,
     pub reserved10: B6,
-    pub reserved16: u16,
 }
 
 #[bitpiece(2)]
@@ -857,32 +829,62 @@ pub enum NicEndianness {
     Big = 1,
 }
 
+/// a bitfield for the contents of a csr.
+#[bitpiece(32)]
+pub struct NicCsrValue {
+    /// the actual contents of the csr.
+    pub content: u16,
+
+    /// reserved bits of the csr.
+    pub reserved: u16,
+}
+
+/// a bitfield for the contents of a bcr.
+#[bitpiece(32)]
+pub struct NicBcrValue {
+    /// the actual contents of the bcr.
+    pub content: u16,
+
+    /// reserved bits of the bcr.
+    pub reserved: u16,
+}
+
 /// a control status register of the NIC.
-pub struct NicCsr<'a, T: BitPiece<Bits = u32>> {
+pub struct NicCsr<'a, T: BitPiece<Bits = u16>> {
     csr_index: u8,
     nic_regs: &'a mut NicRegs,
     phantom: PhantomData<T>,
 }
-impl<'a, T: BitPiece<Bits = u32>> NicCsr<'a, T> {
+impl<'a, T: BitPiece<Bits = u16>> NicCsr<'a, T> {
     pub fn read(&mut self) -> T {
-        T::from_bits(self.nic_regs.read_csr(self.csr_index))
+        let csr_value = NicCsrValue::from_bits(self.nic_regs.read_csr(self.csr_index));
+        T::from_bits(csr_value.content())
     }
     pub fn write(&mut self, value: T) {
-        self.nic_regs.write_csr(self.csr_index, value.to_bits());
+        let csr_value = NicCsrValue::from_fields(NicCsrValueFields {
+            content: value.to_bits(),
+            reserved: BitPiece::zeroes(),
+        });
+        self.nic_regs.write_csr(self.csr_index, csr_value.to_bits());
     }
 }
 
 /// a bus control register of the NIC.
-pub struct NicBcr<'a, T: BitPiece<Bits = u32>> {
+pub struct NicBcr<'a, T: BitPiece<Bits = u16>> {
     bcr_index: u8,
     nic_regs: &'a mut NicRegs,
     phantom: PhantomData<T>,
 }
-impl<'a, T: BitPiece<Bits = u32>> NicBcr<'a, T> {
+impl<'a, T: BitPiece<Bits = u16>> NicBcr<'a, T> {
     pub fn read(&mut self) -> T {
-        T::from_bits(self.nic_regs.read_bcr(self.bcr_index))
+        let csr_value = NicBcrValue::from_bits(self.nic_regs.read_csr(self.bcr_index));
+        T::from_bits(csr_value.content())
     }
     pub fn write(&mut self, value: T) {
-        self.nic_regs.write_bcr(self.bcr_index, value.to_bits());
+        let csr_value = NicBcrValue::from_fields(NicBcrValueFields {
+            content: value.to_bits(),
+            reserved: BitPiece::zeroes(),
+        });
+        self.nic_regs.write_csr(self.bcr_index, csr_value.to_bits());
     }
 }

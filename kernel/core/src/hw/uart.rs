@@ -1,9 +1,7 @@
 use core::{
     future::Future,
     pin::Pin,
-    ptr::null_mut,
-    sync::atomic::{AtomicPtr, Ordering},
-    task::{Context, Poll, RawWakerVTable, Waker},
+    task::{Context, Poll},
 };
 
 use bitpiece::*;
@@ -12,10 +10,7 @@ use hal::{
     sys::{Cp0Reg, Cp0RegStatus},
 };
 
-use crate::{
-    executor::{async_event::AsyncEvent, EXECUTOR},
-    sync::IrqSpinlock,
-};
+use crate::executor::async_event::AsyncEvent;
 
 #[macro_export]
 macro_rules! print {
