@@ -361,12 +361,14 @@ impl PciBarReg {
         let modified_bits = match self.kind {
             PciBarKind::Mem => {
                 let mut modified_value = PciMemBar::from_bits(bits);
-                modified_value.set_address(BitPiece::from_bits(new_address));
+                let desired_addr_value = PciMemBar::from_bits(new_address);
+                modified_value.set_address(desired_addr_value.address());
                 modified_value.to_bits()
             }
             PciBarKind::Io => {
                 let mut modified_value = PciIoBar::from_bits(bits);
-                modified_value.set_address(BitPiece::from_bits(new_address));
+                let desired_addr_value = PciIoBar::from_bits(new_address);
+                modified_value.set_address(desired_addr_value.address());
                 modified_value.to_bits()
             }
         };
