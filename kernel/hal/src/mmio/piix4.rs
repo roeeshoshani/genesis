@@ -34,6 +34,19 @@ impl Piix4IoRegs {
     mmio_reg! {
         counter_2, u8, ReadWrite, 0x42
     }
+    mmio_reg! {
+        irq_trigger_mode_reg_1, u8, ReadWrite, 0x4d0
+    }
+    mmio_reg! {
+        irq_trigger_mode_reg_2, u8, ReadWrite, 0x4d1
+    }
+}
+
+#[bitpiece(1)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Piix4IrqTriggerMode {
+    EdgeTriggered = 0,
+    LevelTriggered = 1,
 }
 
 #[bitpiece(8)]

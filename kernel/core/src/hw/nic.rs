@@ -16,7 +16,7 @@ use crate::{hw::pci::PciBarKind, println};
 
 use super::{
     interrupts::with_interrupts_disabled,
-    pci::{pci_find, PciId},
+    pci::{pci_find, PciFunction, PciId},
 };
 
 const NIC_BAR_SIZE: usize = 0x20;
@@ -38,10 +38,10 @@ const NIC_BUF_SIZE: usize = ETH_MAX_MTU + ETH_HDR_LEN;
 
 pub const NIC_ETH_ADDR: EthAddr = EthAddr([0x44; ETH_ADDR_LEN]);
 
-pub fn nic_init() {
+pub fn nic_init() -> Option<Nic> {
     let Some(dev) = pci_find(PciId::AM79C970) else {
         println!("nic not found");
-        return;
+        return None;
     };
 
     let bar = dev.bar(0).unwrap();
@@ -205,12 +205,20 @@ pub fn nic_init() {
         tx_timeout_err: false,
         any_err: false,
     }));
+
+    Some(Nic {
+        init_block_storage: Some(init_block),
+        rx_bufs,
+        tx_bufs,
+        rx_ring_storage: rx_ring,
+        tx_ring_storage: tx_ring,
+    })
 }
 
 pub struct Nic {
     init_block_storage: Option<Pin<Box<InitBlock>>>,
-    rx_buffers: [Pin<Box<NicBuf>>; NIC_RX_RING_SIZE],
-    tx_buffers: [Pin<Box<NicBuf>>; NIC_TX_RING_SIZE],
+    rx_bufs: RxRingBufs,
+    tx_bufs: TxRingBufs,
     rx_ring_storage: Pin<Box<RxRing>>,
     tx_ring_storage: Pin<Box<TxRing>>,
 }

@@ -8,7 +8,7 @@ use hal::{
 };
 use thiserror_no_std::Error;
 
-use crate::{hw::interrupts::with_interrupts_disabled, utils::HexDisplay};
+use crate::{hw::interrupts::with_interrupts_disabled, println, utils::HexDisplay};
 
 /// the maximum amount of BARs that a single function may have.
 const PCI_MAX_BARS: usize = 6;
@@ -724,22 +724,22 @@ impl Piix4CorePciFunction {
     pub fn new(function: PciFunction) -> Self {
         Self { function }
     }
-    pub fn irqs_route(self) -> PciConfigRegTyped<Piix4IrqsRoute> {
+    pub fn pci_irq_routing(self) -> PciConfigRegTyped<Piix4PciIrqRouting> {
         PciConfigRegTyped::new(self.function.config_reg(24))
     }
 }
 
 #[bitpiece(32)]
-pub struct Piix4IrqsRoute {
-    pub irq_a: Piix4IrqRoute,
-    pub irq_b: Piix4IrqRoute,
-    pub irq_c: Piix4IrqRoute,
-    pub irq_d: Piix4IrqRoute,
+pub struct Piix4PciIrqRouting {
+    pub inta: Piix4PciIrqRoute,
+    pub intb: Piix4PciIrqRoute,
+    pub intc: Piix4PciIrqRoute,
+    pub intd: Piix4PciIrqRoute,
 }
 
 #[bitpiece(8)]
-pub struct Piix4IrqRoute {
-    pub interrupt_routing: B4,
+pub struct Piix4PciIrqRoute {
+    pub routing: B4,
     pub reserved4: B3,
     pub disable_routing: bool,
 }

@@ -8,7 +8,10 @@ extern crate alloc;
 use core::panic::PanicInfo;
 use executor::EXECUTOR;
 use hw::{
-    interrupts::{interrupts_disable, interrupts_enable, interrupts_init, wait_for_interrupt},
+    interrupts::{
+        interrupts_disable, interrupts_enable, interrupts_init, wait_for_interrupt,
+        PIIX4_I8259_CHAIN,
+    },
     nic::nic_init,
     uart::{uart_init, uart_task},
 };
@@ -64,7 +67,7 @@ extern "C" fn _start() -> ! {
     // done initializing, enable interrupts
     interrupts_enable();
 
-    nic_init();
+    let _nic = nic_init();
 
     main_loop();
 }

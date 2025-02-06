@@ -1,5 +1,6 @@
 use core::arch::{asm, global_asm};
 
+use bit_field::BitField;
 use bitpiece::*;
 use hal::{
     insn::{MipsAbsJump, MipsInsnReg, MipsMoveInsn},
@@ -12,7 +13,22 @@ use hal::{
 };
 use volatile::VolatilePtr;
 
-use crate::hw::uart::uart_interrupt_handler;
+use crate::hw::{pci::*, uart::uart_interrupt_handler};
+
+/// PCI has 4 irq lines: INTA, INTB, INTC and INTD.
+pub const PCI_IRQ_LINES_AMOUNT: usize = 4;
+
+/// the i8259 interrupt line of the pci INTA irq line.
+pub const PCI_INTA_IRQ: u8 = 3;
+
+/// the i8259 interrupt line of the pci INTB irq line.
+pub const PCI_INTB_IRQ: u8 = 4;
+
+/// the i8259 interrupt line of the pci INTC irq line.
+pub const PCI_INTC_IRQ: u8 = 5;
+
+/// the i8259 interrupt line of the pci INTD irq line.
+pub const PCI_INTD_IRQ: u8 = 6;
 
 pub fn interrupts_set_enabled(enabled: bool) {
     let mut status = Cp0RegStatus::read();
@@ -337,6 +353,9 @@ pub struct I8259Dev {
     pub is_master: bool,
 }
 impl I8259Dev {
+    /// the total amount of irq lines in a single i8259 interrupt controller device.
+    pub const IRQ_LINES_AMOUNT: usize = 8;
+
     pub fn init(&self) {
         self.cmd_reg.write(
             I8259InitCmd1::from_fields(I8259InitCmd1Fields {
@@ -448,6 +467,9 @@ pub struct I8259Chain {
     pub slave: I8259Dev,
 }
 impl I8259Chain {
+    /// the total amount of irq lines in a chain of 2 i8259 interrupt controllers.
+    pub const IRQ_LINES_AMOUNT: usize = I8259Dev::IRQ_LINES_AMOUNT * 2;
+
     pub fn init(&self) {
         self.master.init();
         self.slave.init();
@@ -515,6 +537,66 @@ fn i8259_init() {
     Cp0RegStatus::write(status);
 }
 
+fn piix4_init() {
+    // find the piix4 pci device
+    let piix4 = Piix4CorePciFunction::new(pci_find(PciId::PIIX4_CORE).unwrap());
+
+    // map pci irq lines to their desired i8259 irq lines.
+    piix4
+        .pci_irq_routing()
+        .write(Piix4PciIrqRouting::from_fields(Piix4PciIrqRoutingFields {
+            inta: Piix4PciIrqRouteFields {
+                routing: BitPiece::from_bits(PCI_INTA_IRQ),
+                reserved4: BitPiece::zeroes(),
+                disable_routing: false,
+            },
+            intb: Piix4PciIrqRouteFields {
+                routing: BitPiece::from_bits(PCI_INTB_IRQ),
+                reserved4: BitPiece::zeroes(),
+                disable_routing: false,
+            },
+            intc: Piix4PciIrqRouteFields {
+                routing: BitPiece::from_bits(PCI_INTC_IRQ),
+                reserved4: BitPiece::zeroes(),
+                disable_routing: false,
+            },
+            intd: Piix4PciIrqRouteFields {
+                routing: BitPiece::from_bits(PCI_INTD_IRQ),
+                reserved4: BitPiece::zeroes(),
+                disable_routing: false,
+            },
+        }));
+
+    // make all pci irq lines level triggered since pci irq lines are always level triggered.
+    for irq in [PCI_INTA_IRQ, PCI_INTB_IRQ, PCI_INTC_IRQ, PCI_INTD_IRQ] {
+        piix4_set_irq_trigger_mode(irq, Piix4IrqTriggerMode::LevelTriggered);
+    }
+}
+
+fn piix4_set_irq_trigger_mode(irq: u8, mode: Piix4IrqTriggerMode) {
+    // make sure that the irq number is in range
+    assert!(irq < I8259Chain::IRQ_LINES_AMOUNT as u8);
+
+    // some irqs are reserved and can not be changed
+    pub const RESERVED_IRQS: &[u8] = &[0, 1, 2, 8, 13];
+    assert!(!RESERVED_IRQS.contains(&irq));
+
+    // for controlling the irq trigger mode, there are two 8-bit registers, where each bit represents the mode of a single irq line.
+    //
+    // so, we need to decide which register we want to use and the bit offset inside that register according to the irq line number
+    // that was provided.
+    let reg = if irq < 8 {
+        Piix4IoRegs::irq_trigger_mode_reg_1()
+    } else {
+        Piix4IoRegs::irq_trigger_mode_reg_1()
+    };
+    let bit_offset = irq % 8;
+
+    let mut value = reg.read();
+    value.set_bit(bit_offset as usize, (mode as u8) != 0);
+    reg.write(value);
+}
+
 /// puts the cpu to sleep until an external event is received (interrupt, nmi, or reset).
 pub fn wait_for_interrupt() {
     unsafe { asm!("wait") };
@@ -525,4 +607,5 @@ pub fn interrupts_init() {
     init_cp0_status();
     init_cp0_cause();
     i8259_init();
+    piix4_init();
 }
