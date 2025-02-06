@@ -104,7 +104,6 @@ pub fn uart_init() {
 }
 
 fn uart_set_interrupts_enabled(enabled: bool) {
-    // enable the uart interrupts
     let mut status = Cp0RegStatus::read();
     status.interrupt_mask_mut().set_tty2(enabled);
     Cp0RegStatus::write(status);

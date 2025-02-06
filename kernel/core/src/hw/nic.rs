@@ -2,7 +2,10 @@ use core::{marker::PhantomData, pin::Pin, ptr::NonNull};
 
 use alloc::boxed::Box;
 use bitpiece::*;
-use hal::mem::VirtAddr;
+use hal::{
+    mem::VirtAddr,
+    sys::{Cp0Reg, Cp0RegStatus},
+};
 use static_assertions::const_assert_eq;
 use volatile::{
     access::{Access, ReadOnly, ReadWrite},
@@ -63,6 +66,9 @@ pub fn nic_init() {
 
     // make sure that the device uses 32-bit software structures. we currently don't support the 16-bit mode.
     assert!(regs.bcr20().read().software_size_32());
+
+    // enable piix4 INTR interrupts so that we can receive interrupts from the NIC.
+    enable_piix4_intr_interrupts();
 
     // allocate buffers for rx descriptors
     let mut rx_bufs = RxRingBufs(core::array::from_fn(|_| {
@@ -207,6 +213,12 @@ pub struct Nic {
     tx_buffers: [Pin<Box<NicBuf>>; NIC_TX_RING_SIZE],
     rx_ring_storage: Pin<Box<RxRing>>,
     tx_ring_storage: Pin<Box<TxRing>>,
+}
+
+fn enable_piix4_intr_interrupts() {
+    let mut status = Cp0RegStatus::read();
+    status.interrupt_mask_mut().set_piix4_intr(true);
+    Cp0RegStatus::write(status);
 }
 
 #[repr(transparent)]
