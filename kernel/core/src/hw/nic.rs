@@ -52,7 +52,7 @@ pub fn nic_init() {
     dev.config_reg1().write(reg1);
 
     let mut regs = NicRegs {
-        addr: mapped_bar.addr.kseg_uncachable_addr().unwrap(),
+        addr: mapped_bar.addr.kseg_cachable_addr().unwrap(),
         size: mapped_bar.size,
     };
 
@@ -62,13 +62,16 @@ pub fn nic_init() {
     // make sure that the device uses 32-bit software structures. we currently don't support the 16-bit mode.
     assert!(regs.bcr20().read().software_size_32());
 
+    // allocate buffers for rx descriptors
     let mut rx_bufs = RxRingBufs(core::array::from_fn(|_| {
         Box::pin(NicBuf([0; NIC_BUF_SIZE]))
     }));
+
+    // build a ring of rx descriptors
     let mut rx_ring = Box::pin(RxRing {
         descs: core::array::from_fn(|i| {
-            let buf_mut = &mut *rx_bufs.0[i];
-            let buf_virt_addr = VirtAddr(buf_mut as *mut NicBuf as usize);
+            let buf = &mut *rx_bufs.0[i];
+            let buf_virt_addr = VirtAddr(buf as *mut NicBuf as usize);
             let buf_phys_addr = buf_virt_addr.kseg_cachable_phys_addr().unwrap();
             RxDesc {
                 buf_addr: buf_phys_addr.0 as u32,
@@ -92,9 +95,11 @@ pub fn nic_init() {
             }
         }),
     });
-    let rx_ring_addr = &mut *rx_ring as *mut RxRing as usize;
+    let rx_ring_virt_addr = VirtAddr(&mut *rx_ring as *mut RxRing as usize);
+    let rx_ring_phys_addr = rx_ring_virt_addr.kseg_cachable_phys_addr().unwrap();
 
-    let init_block_content = InitBlock {
+    // build the initialization block
+    let mut init_block = Box::pin(InitBlock {
         mode: NicMode::from_fields(NicModeFields {
             disable_rx: false,
             disable_tx: false,
@@ -123,18 +128,18 @@ pub fn nic_init() {
         phys_addr: EthAddr([0x44; ETH_ADDR_LEN]),
         reserved: BitPiece::zeroes(),
         logical_addr_filter: [0u8; NIC_LOGICAL_ADDR_FILTER_SIZE],
-        rx_ring_addr: todo!(),
-        tx_ring_addr: todo!(),
-    };
-    let init_block = Box::pin(init_block_content);
-    let init_block_addr = &mut *init_block as *mut InitBlock as usize;
+        rx_ring_addr: rx_ring_phys_addr.0 as u32,
+        tx_ring_addr: 0,
+    });
+    let init_block_virt_addr = VirtAddr(&mut *init_block as *mut InitBlock as usize);
+    let init_block_phys_addr = init_block_virt_addr.kseg_cachable_phys_addr().unwrap();
 
     regs.csr1().write(NicCsr1::from_fields(NicCsr1Fields {
-        init_block_addr_low: (init_block_addr & 0xffff) as u16,
+        init_block_addr_low: (init_block_phys_addr.0 & 0xffff) as u16,
         reserved16: BitPiece::zeroes(),
     }));
     regs.csr2().write(NicCsr2::from_fields(NicCsr2Fields {
-        init_block_addr_high: ((init_block_addr >> 16) & 0xffff) as u16,
+        init_block_addr_high: ((init_block_phys_addr.0 >> 16) & 0xffff) as u16,
         reserved16: BitPiece::zeroes(),
     }));
 }
