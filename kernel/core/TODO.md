@@ -4,3 +4,4 @@
 - think about implementing a destructor for the physical memory allocator. is it even relevant though? i mean it is a global
   variable anway...
 - add support for arrays in bitpiece. probably really hard, but also really useful.
+- move all stuff that is only used in `core` and not in `loader` outside of `hal`.
