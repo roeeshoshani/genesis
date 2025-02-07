@@ -10,7 +10,7 @@ use volatile::{
 };
 
 use crate::{
-    hw::pci::{PciBarKind, PciInterruptPin},
+    hw::pci::{PciBarKind, PciConfigRegCommand, PciConfigRegCommandFields, PciInterruptPin},
     println,
 };
 
@@ -57,12 +57,33 @@ pub fn nic_init() -> Option<Nic> {
 
     // configure the pci command register of the device
     dev.config_reg1().modify(|reg| {
-        // enable io for this device so that we can access its io bar.
-        // NOTE: this should only be done after we are finished mapping all bars.
-        reg.command_mut().set_io_enable(true);
-
-        // enable bus master support so that the device can generate interrupts and dma cycles.
-        reg.command_mut().set_bus_master_enable(true);
+        reg.set_command(PciConfigRegCommand::from_fields(
+            PciConfigRegCommandFields {
+                // enable io for this device so that we can access its io bar.
+                // NOTE: this should only be done after we are finished mapping all bars.
+                io_enable: true,
+                // enable mmio. we don't really use it, but enable it anyway, just in case.
+                mem_enable: true,
+                // enable bus master support so that the device can generate interrupts and dma cycles.
+                bus_master_enable: true,
+                // the nic should not generate any pci special cycles
+                special_cycles_enable: false,
+                // allow efficient dma memory writes
+                mem_write_and_invalidate_enable: true,
+                // irrelevant for this device
+                vga_palette_snoop_enable: false,
+                // detect parity errors
+                parity_error_response_enable: true,
+                reserved7: BitPiece::zeroes(),
+                // allow device to assert SERR. we don't really use it, but whatever.
+                serr_enable: true,
+                // allow fast back to back transactions for faster communication.
+                fast_back_to_back_enable: true,
+                // enable interrupts
+                are_interrupts_disabled: false,
+                reserved11: BitPiece::zeroes(),
+            },
+        ));
     });
 
     // configure the nic to use the pci INTA irq line
@@ -205,7 +226,7 @@ pub fn nic_init() -> Option<Nic> {
     }));
     regs.csr0().write(NicCsr0::from_fields(NicCsr0Fields {
         init: true,
-        start: true,
+        start: false,
         stop: false,
         transmit_demand: false,
         tx_on: true,
