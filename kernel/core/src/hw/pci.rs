@@ -148,7 +148,7 @@ impl PciBus {
         addr.set_bus_num(bus_num);
         Self { addr }
     }
-    pub fn dev(self, dev_num: u8) -> Option<PciDev> {
+    pub fn dev(&self, dev_num: u8) -> Option<PciDev> {
         let mut dev_addr = self.addr;
         dev_addr.set_dev_num(PciDevNum::new(dev_num).unwrap());
         let dev = PciDev { addr: dev_addr };
@@ -169,7 +169,7 @@ pub struct PciDev {
     addr: PciConfigAddr,
 }
 impl PciDev {
-    pub fn function(self, function_num: u8) -> Option<PciFunction> {
+    pub fn function(&self, function_num: u8) -> Option<PciFunction> {
         let mut function_addr = self.addr;
         function_addr.set_function_num(PciFunctionNum::new(function_num).unwrap());
 
@@ -185,12 +185,12 @@ impl PciDev {
     }
 
     /// checks if this pci device even exists.
-    fn exists(self) -> bool {
+    fn exists(&self) -> bool {
         self.function(0).is_some()
     }
 
     /// returns the first function of this device. all devices must have this function.
-    pub fn function0(self) -> PciFunction {
+    pub fn function0(&self) -> PciFunction {
         self.function(0).unwrap()
     }
 
@@ -239,7 +239,7 @@ pub struct PciFunction {
     addr: PciConfigAddr,
 }
 impl PciFunction {
-    pub fn id(self) -> PciId {
+    pub fn id(&self) -> PciId {
         PciId {
             vendor_id: self.vendor_id(),
             device_id: self.device_id(),
@@ -247,7 +247,7 @@ impl PciFunction {
     }
 
     /// returns the range of configuration space register indexes which are BAR registers.
-    fn bar_regs_range(self) -> Range<u8> {
+    fn bar_regs_range(&self) -> Range<u8> {
         match self.header_type().kind() {
             PciHeaderKind::General => 4..10,
             PciHeaderKind::PciToPciBridge => 4..6,
@@ -258,7 +258,7 @@ impl PciFunction {
         }
     }
 
-    pub fn bar(self, index: u8) -> Option<PciBarReg> {
+    pub fn bar(&self, index: u8) -> Option<PciBarReg> {
         let bar_regs_range = self.bar_regs_range();
 
         let reg_num = bar_regs_range.start + index;
@@ -271,61 +271,62 @@ impl PciFunction {
         PciBarReg::new(PciConfigRegTyped::new(self.config_reg(reg_num)))
     }
 
-    pub fn bars(self) -> impl Iterator<Item = PciBarReg> {
+    pub fn bars(&self) -> impl Iterator<Item = PciBarReg> {
+        let pci_function = self.clone();
         self.bar_regs_range().filter_map(move |reg_num| {
-            PciBarReg::new(PciConfigRegTyped::new(self.config_reg(reg_num)))
+            PciBarReg::new(PciConfigRegTyped::new(pci_function.config_reg(reg_num)))
         })
     }
 
-    pub fn bars_array(self) -> ArrayVec<PciBarReg, PCI_MAX_BARS> {
+    pub fn bars_array(&self) -> ArrayVec<PciBarReg, PCI_MAX_BARS> {
         self.bars().collect()
     }
 
-    pub fn config_reg(self, reg_num: u8) -> PciConfigReg {
+    pub fn config_reg(&self, reg_num: u8) -> PciConfigReg {
         let mut reg_addr = self.addr;
         reg_addr.set_reg_num(PciRegNum::new(reg_num).unwrap());
 
         PciConfigReg { addr: reg_addr }
     }
 
-    pub fn config_reg0(self) -> PciConfigRegTyped<PciConfigReg0> {
+    pub fn config_reg0(&self) -> PciConfigRegTyped<PciConfigReg0> {
         PciConfigRegTyped::new(self.config_reg(0))
     }
-    pub fn config_reg1(self) -> PciConfigRegTyped<PciConfigReg1> {
+    pub fn config_reg1(&self) -> PciConfigRegTyped<PciConfigReg1> {
         PciConfigRegTyped::new(self.config_reg(1))
     }
-    pub fn config_reg2(self) -> PciConfigRegTyped<PciConfigReg2> {
+    pub fn config_reg2(&self) -> PciConfigRegTyped<PciConfigReg2> {
         PciConfigRegTyped::new(self.config_reg(2))
     }
-    pub fn config_reg3(self) -> PciConfigRegTyped<PciConfigReg3> {
+    pub fn config_reg3(&self) -> PciConfigRegTyped<PciConfigReg3> {
         PciConfigRegTyped::new(self.config_reg(3))
     }
-    pub fn config_reg15(self) -> PciConfigRegTyped<PciConfigReg15> {
+    pub fn config_reg15(&self) -> PciConfigRegTyped<PciConfigReg15> {
         PciConfigRegTyped::new(self.config_reg(15))
     }
 
     /// checks if this pci function even exists.
-    fn exists(self) -> bool {
+    fn exists(&self) -> bool {
         self.vendor_id() != 0xffff
     }
 
-    pub fn vendor_id(self) -> u16 {
+    pub fn vendor_id(&self) -> u16 {
         self.config_reg0().read().vendor_id()
     }
 
-    pub fn device_id(self) -> u16 {
+    pub fn device_id(&self) -> u16 {
         self.config_reg0().read().device_id()
     }
 
-    pub fn class_code(self) -> u8 {
+    pub fn class_code(&self) -> u8 {
         self.config_reg2().read().class_code()
     }
 
-    pub fn subclass(self) -> u8 {
+    pub fn subclass(&self) -> u8 {
         self.config_reg2().read().subclass()
     }
 
-    pub fn header_type(self) -> PciHeaderType {
+    pub fn header_type(&self) -> PciHeaderType {
         self.config_reg3().read().header_type()
     }
 
@@ -382,29 +383,29 @@ impl PciBarReg {
 
         Some(result)
     }
-    pub fn kind(self) -> PciBarKind {
+    pub fn kind(&self) -> PciBarKind {
         self.kind
     }
-    fn mem_bar_reg(self) -> PciConfigRegTyped<PciMemBar> {
+    fn mem_bar_reg(&self) -> PciConfigRegTyped<PciMemBar> {
         self.reg.cast()
     }
-    fn io_bar_reg(self) -> PciConfigRegTyped<PciIoBar> {
+    fn io_bar_reg(&self) -> PciConfigRegTyped<PciIoBar> {
         self.reg.cast()
     }
-    pub fn address(self) -> u32 {
+    pub fn address(&self) -> u32 {
         match self.kind {
             PciBarKind::Mem => self.mem_bar_reg().read().address().get(),
             PciBarKind::Io => self.io_bar_reg().read().address().get(),
         }
     }
     /// get the BAR's address value by only masking out the other fields of the BAR, without shifting.
-    fn address_noshift(self) -> u32 {
+    fn address_noshift(&self) -> u32 {
         match self.kind {
             PciBarKind::Mem => self.mem_bar_reg().read().address_noshift(),
             PciBarKind::Io => self.io_bar_reg().read().address_noshift(),
         }
     }
-    pub fn set_address(self, new_address: u32) {
+    pub fn set_address(&mut self, new_address: u32) {
         let bits = self.reg.read().to_bits();
         let modified_bits = match self.kind {
             PciBarKind::Mem => {
@@ -423,7 +424,7 @@ impl PciBarReg {
         self.reg.write(PciBarRaw::from_bits(modified_bits));
     }
     /// returns the size of the BAR.
-    pub fn size(self) -> u32 {
+    pub fn size(&self) -> u32 {
         // TODO: what if someone modified the BAR while we are doing this?
 
         // save the original value before modifying the BAR
@@ -651,7 +652,7 @@ pub struct PciHeaderType {
     pub is_multi_function: bool,
 }
 impl PciHeaderType {
-    pub fn kind(self) -> PciHeaderKind {
+    pub fn kind(&self) -> PciHeaderKind {
         match self.raw_kind().get() {
             0 => PciHeaderKind::General,
             1 => PciHeaderKind::PciToPciBridge,
@@ -674,10 +675,10 @@ pub struct PciConfigReg {
     addr: PciConfigAddr,
 }
 impl PciConfigReg {
-    pub fn read(self) -> u32 {
+    pub fn read(&self) -> u32 {
         pci_config_read(self.addr)
     }
-    pub fn write(self, value: u32) {
+    pub fn write(&self, value: u32) {
         pci_config_write(self.addr, value)
     }
 
@@ -707,13 +708,13 @@ impl<T: BitPiece<Bits = u32>> PciConfigRegTyped<T> {
             phantom: PhantomData,
         }
     }
-    pub fn read(self) -> T {
+    pub fn read(&self) -> T {
         T::from_bits(self.reg.read())
     }
-    pub fn write(self, value: T) {
+    pub fn write(&self, value: T) {
         self.reg.write(value.to_bits());
     }
-    pub fn modify<F>(self, modify: F)
+    pub fn modify<F>(&mut self, modify: F)
     where
         F: FnOnce(&mut T),
     {
@@ -721,10 +722,10 @@ impl<T: BitPiece<Bits = u32>> PciConfigRegTyped<T> {
         modify(&mut value);
         self.write(value);
     }
-    pub fn reg(self) -> PciConfigReg {
+    pub fn reg(&self) -> PciConfigReg {
         self.reg
     }
-    pub fn cast<O: BitPiece<Bits = u32>>(self) -> PciConfigRegTyped<O> {
+    pub fn cast<O: BitPiece<Bits = u32>>(&self) -> PciConfigRegTyped<O> {
         PciConfigRegTyped::new(self.reg)
     }
 }
@@ -815,10 +816,10 @@ pub fn pci_find(id: PciId) -> Option<PciFunction> {
 static PCI_INTERRUPT_CALLBACK_CHAINS: [CallbackChain; PCI_IRQ_LINES_AMOUNT] =
     [const { CallbackChain::new() }; PCI_IRQ_LINES_AMOUNT];
 
-pub fn pci_interrupt_handler_register<F: CallbackChainFn>(
+pub fn pci_interrupt_handler_register<'a, F: CallbackChainFn + 'a>(
     irq: PciIrqNum,
     callback: F,
-) -> CallbackChainNode {
+) -> CallbackChainNode<'a> {
     let chain = &PCI_INTERRUPT_CALLBACK_CHAINS[irq as usize];
     chain.register(callback)
 }
@@ -855,7 +856,7 @@ impl Piix4CorePciFunction {
     pub fn new(function: PciFunction) -> Self {
         Self { function }
     }
-    pub fn pci_irq_routing(self) -> PciConfigRegTyped<Piix4PciIrqRouting> {
+    pub fn pci_irq_routing(&self) -> PciConfigRegTyped<Piix4PciIrqRouting> {
         PciConfigRegTyped::new(self.function.config_reg(24))
     }
 }

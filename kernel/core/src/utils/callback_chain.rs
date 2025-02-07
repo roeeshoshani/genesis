@@ -1,4 +1,4 @@
-use core::{pin::Pin, ptr::NonNull};
+use core::{marker::PhantomData, pin::Pin, ptr::NonNull};
 
 use alloc::boxed::Box;
 
@@ -25,9 +25,9 @@ impl CallbackChain {
             head_link: IrqLock::new(None),
         }
     }
-    pub fn register<F>(&'static self, callback: F) -> CallbackChainNode
+    pub fn register<'a, F>(&'static self, callback: F) -> CallbackChainNode<'a>
     where
-        F: CallbackChainFn,
+        F: CallbackChainFn + 'a,
     {
         let mut head_link = self.head_link.lock();
         let mut callback = Box::pin(Callback {
@@ -37,7 +37,10 @@ impl CallbackChain {
             chain: self,
         });
         *head_link = Some(NonNull::from(&mut *callback));
-        CallbackChainNode { callback }
+        CallbackChainNode {
+            callback,
+            phantom: PhantomData,
+        }
     }
 
     pub fn trigger(&'static self) {
@@ -58,10 +61,11 @@ impl CallbackChain {
 unsafe impl Send for CallbackChain {}
 unsafe impl Sync for CallbackChain {}
 
-pub struct CallbackChainNode {
+pub struct CallbackChainNode<'a> {
     callback: Pin<Box<Callback>>,
+    phantom: PhantomData<&'a ()>,
 }
-impl Drop for CallbackChainNode {
+impl<'a> Drop for CallbackChainNode<'a> {
     fn drop(&mut self) {
         // when dropping the node, we want to unlink it from the list.
 
