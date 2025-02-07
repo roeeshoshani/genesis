@@ -10,12 +10,15 @@ use volatile::{
 };
 
 use crate::{
-    hw::pci::{PciBarKind, PciConfigRegCommand, PciConfigRegCommandFields, PciInterruptPin},
+    hw::{
+        interrupts::PCI_INTB_IRQ,
+        pci::{PciBarKind, PciConfigRegCommand, PciConfigRegCommandFields, PciInterruptPin},
+    },
     println,
 };
 
 use super::{
-    interrupts::{with_interrupts_disabled, PCI_INTA_IRQ, PIIX4_I8259_CHAIN},
+    interrupts::{with_interrupts_disabled, PIIX4_I8259_CHAIN},
     pci::{pci_find, PciId},
 };
 
@@ -86,13 +89,16 @@ pub fn nic_init() -> Option<Nic> {
         ));
     });
 
-    // configure the nic to use the pci INTA irq line
+    // configure the nic to use the pci INTB irq line.
+    //
+    // on the mips malta board, the nic is hardwired to use INTB, and can't really be configured to use any other line,
+    // so we configure it to use INTB.
     dev.config_reg15().modify(|reg| {
-        reg.set_interrupt_pin(PciInterruptPin::INTA);
+        reg.set_interrupt_pin(PciInterruptPin::INTB);
     });
 
-    // unmask the pci INTA irq so that we can receive interrupts from the nic
-    PIIX4_I8259_CHAIN.set_irq_mask(PCI_INTA_IRQ, false);
+    // unmask the pci INTB irq so that we can receive interrupts from the nic
+    PIIX4_I8259_CHAIN.set_irq_mask(PCI_INTB_IRQ, false);
 
     // perform a 32-bit write to the RDP to configure the NIC to use dword io instead of word io.
     regs.rdp().write(0);
