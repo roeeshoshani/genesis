@@ -62,14 +62,15 @@ extern "C" fn _start() -> ! {
     // initialize the page allocator
     page_allocator_init();
 
-    // initialize the interrupt management logic
+    // initialize pci. pci initialization requires memory allocation, so the memory allocation must be initialized first.
+    pci_init();
+
+    // initialize the interrupt management logic. interrupt initialization requires access to pci devices, so pci must be
+    // initialized first.
     interrupts_init();
 
     // done initializing, enable interrupts
     interrupts_enable();
-
-    // initialize pci
-    pci_init();
 
     main_loop();
 }
