@@ -82,8 +82,16 @@ pub struct PhysMemBumpAllocatorError {
     pub space_left: HexDisplay<usize>,
 }
 
+/// the size of the address range of the memory mapped piix4 io registers at the start of the PCI I/O 0 address space.
+const PIIX4_IO_SPACE_SIZE: usize = 0x1000;
+
 static PCI_IO_SPACE_ALLOCATOR: IrqSpinlock<PhysMemBarBumpAllocator> =
-    IrqSpinlock::new(PhysMemBarBumpAllocator::new(PCI_0_IO));
+    IrqSpinlock::new(PhysMemBarBumpAllocator::new(PhysMemRegion {
+        // to avoid allocating the io space used by the piix4 io registers to other pci device, we just exclude it from the allocation
+        // region here.
+        start: PhysAddr(PCI_0_IO.start.0 + PIIX4_IO_SPACE_SIZE),
+        inclusive_end: PCI_0_IO.inclusive_end,
+    }));
 static PCI_MEM_SPACE_ALLOCATOR: IrqSpinlock<PhysMemBarBumpAllocator> =
     IrqSpinlock::new(PhysMemBarBumpAllocator::new(PCI_0_MEM));
 
