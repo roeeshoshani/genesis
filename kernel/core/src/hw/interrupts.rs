@@ -248,8 +248,8 @@ extern "C" fn general_exception_handler() {
             I8259Irq::TIMER => {
                 // TODO
             }
-            I8259Irq::INTA => {
-                crate::println!("got inta");
+            I8259Irq::INTB => {
+                crate::println!("got intb");
             }
             _ => {
                 panic!("received unsupported i8259 irq number: {}", irq_number)
