@@ -76,7 +76,14 @@ pub fn nic_init() -> Option<Nic> {
     // perform a 32-bit write to the RDP to configure the NIC to use dword io instead of word io.
     regs.rdp().write(0);
 
+    // set the nic's software style to the preferred style.
+    // the pcnet-pci style supports 32-bit software structures and provides all features, so it is the best choice for us.
+    regs.bcr20().modify(|reg| {
+        reg.set_software_style(NicSoftwareStyle::PcnetPci);
+    });
+
     // make sure that the device uses 32-bit software structures. we currently don't support the 16-bit mode.
+    // we chose the pcnet-pci software style, which should support 32-bit software structures.
     assert!(regs.bcr20().read().software_size_32());
 
     // allocate buffers for rx descriptors
@@ -890,6 +897,14 @@ impl<'a, T: BitPiece<Bits = u16>> NicCsr<'a, T> {
         });
         self.nic_regs.write_csr(self.csr_index, csr_value.to_bits());
     }
+    pub fn modify<F>(&mut self, modify: F)
+    where
+        F: FnOnce(&mut T),
+    {
+        let mut value = self.read();
+        modify(&mut value);
+        self.write(value);
+    }
 }
 
 /// a bus control register of the NIC.
@@ -900,14 +915,22 @@ pub struct NicBcr<'a, T: BitPiece<Bits = u16>> {
 }
 impl<'a, T: BitPiece<Bits = u16>> NicBcr<'a, T> {
     pub fn read(&mut self) -> T {
-        let csr_value = NicBcrValue::from_bits(self.nic_regs.read_csr(self.bcr_index));
-        T::from_bits(csr_value.content())
+        let bcr_value = NicBcrValue::from_bits(self.nic_regs.read_bcr(self.bcr_index));
+        T::from_bits(bcr_value.content())
     }
     pub fn write(&mut self, value: T) {
-        let csr_value = NicBcrValue::from_fields(NicBcrValueFields {
+        let bcr_value = NicBcrValue::from_fields(NicBcrValueFields {
             content: value.to_bits(),
             reserved: BitPiece::zeroes(),
         });
-        self.nic_regs.write_csr(self.bcr_index, csr_value.to_bits());
+        self.nic_regs.write_bcr(self.bcr_index, bcr_value.to_bits());
+    }
+    pub fn modify<F>(&mut self, modify: F)
+    where
+        F: FnOnce(&mut T),
+    {
+        let mut value = self.read();
+        modify(&mut value);
+        self.write(value);
     }
 }
