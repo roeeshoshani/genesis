@@ -18,13 +18,14 @@ use crate::hw::{pci::*, uart::uart_interrupt_handler};
 /// PCI has 4 irq lines: INTA, INTB, INTC and INTD.
 pub const PCI_IRQ_LINES_AMOUNT: usize = 4;
 
-pub struct I8259Irq;
-impl I8259Irq {
-    pub const TIMER: u8 = 0;
-    pub const INTA: u8 = 3;
-    pub const INTB: u8 = 4;
-    pub const INTC: u8 = 5;
-    pub const INTD: u8 = 6;
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct I8259IrqNum(pub u8);
+impl I8259IrqNum {
+    pub const TIMER: Self = Self(0);
+    pub const INTA: Self = Self(3);
+    pub const INTB: Self = Self(4);
+    pub const INTC: Self = Self(5);
+    pub const INTD: Self = Self(6);
 }
 
 pub fn interrupts_set_enabled(enabled: bool) {
@@ -242,21 +243,30 @@ extern "C" fn general_exception_handler() {
         assert_eq!(isr.count_ones(), 1);
 
         // calculate the irq number by calculating the index of the bit that is set in the ISR.
-        let irq_number = isr.trailing_zeros() as u8;
+        let irq_num = I8259IrqNum(isr.trailing_zeros() as u8);
 
-        match irq_number {
-            I8259Irq::TIMER => {
+        match irq_num {
+            I8259IrqNum::TIMER => {
                 // TODO
             }
-            I8259Irq::INTB => {
-                crate::println!("got intb");
+            I8259IrqNum::INTA => {
+                pci_interrupt_handler(PciIrqNum::IntA);
+            }
+            I8259IrqNum::INTB => {
+                pci_interrupt_handler(PciIrqNum::IntB);
+            }
+            I8259IrqNum::INTC => {
+                pci_interrupt_handler(PciIrqNum::IntC);
+            }
+            I8259IrqNum::INTD => {
+                pci_interrupt_handler(PciIrqNum::IntD);
             }
             _ => {
-                panic!("received unsupported i8259 irq number: {}", irq_number)
+                panic!("received unsupported i8259 irq number: {:?}", irq_num)
             }
         }
 
-        PIIX4_I8259_CHAIN.eoi(irq_number);
+        PIIX4_I8259_CHAIN.eoi(irq_num);
     }
 }
 
@@ -478,21 +488,21 @@ impl I8259Chain {
     pub fn get_mask(&self) -> u16 {
         Self::merge_slave_master_reg(self.master.get_mask(), self.slave.get_mask())
     }
-    pub fn get_irq_mask(&self, irq: u8) -> bool {
-        assert!(irq < Self::IRQ_LINES_AMOUNT as u8);
-        self.get_mask().get_bit(irq as usize)
+    pub fn get_irq_mask(&self, irq: I8259IrqNum) -> bool {
+        assert!(irq.0 < Self::IRQ_LINES_AMOUNT as u8);
+        self.get_mask().get_bit(irq.0 as usize)
     }
-    pub fn set_irq_mask(&self, irq: u8, is_masked: bool) {
-        assert!(irq < Self::IRQ_LINES_AMOUNT as u8);
+    pub fn set_irq_mask(&self, irq: I8259IrqNum, is_masked: bool) {
+        assert!(irq.0 < Self::IRQ_LINES_AMOUNT as u8);
         let mut mask = self.get_mask();
-        mask.set_bit(irq as usize, is_masked);
+        mask.set_bit(irq.0 as usize, is_masked);
         self.set_mask(mask);
     }
 
     /// sends an end of interrupt to the interrupt controller chain, according to the given irq number of the interrupt.
-    pub fn eoi(&self, irq_number: u8) {
+    pub fn eoi(&self, irq_num: I8259IrqNum) {
         // if the irq number is from the slave, then send eoi to the slave as well
-        if irq_number >= 8 {
+        if irq_num.0 >= 8 {
             self.slave.eoi();
         }
 
@@ -535,22 +545,22 @@ fn piix4_init() {
         .pci_irq_routing()
         .write(Piix4PciIrqRouting::from_fields(Piix4PciIrqRoutingFields {
             inta: Piix4PciIrqRouteFields {
-                routing: BitPiece::from_bits(I8259Irq::INTA),
+                routing: BitPiece::from_bits(I8259IrqNum::INTA.0),
                 reserved4: BitPiece::zeroes(),
                 disable_routing: false,
             },
             intb: Piix4PciIrqRouteFields {
-                routing: BitPiece::from_bits(I8259Irq::INTB),
+                routing: BitPiece::from_bits(I8259IrqNum::INTB.0),
                 reserved4: BitPiece::zeroes(),
                 disable_routing: false,
             },
             intc: Piix4PciIrqRouteFields {
-                routing: BitPiece::from_bits(I8259Irq::INTC),
+                routing: BitPiece::from_bits(I8259IrqNum::INTC.0),
                 reserved4: BitPiece::zeroes(),
                 disable_routing: false,
             },
             intd: Piix4PciIrqRouteFields {
-                routing: BitPiece::from_bits(I8259Irq::INTD),
+                routing: BitPiece::from_bits(I8259IrqNum::INTD.0),
                 reserved4: BitPiece::zeroes(),
                 disable_routing: false,
             },
@@ -558,33 +568,26 @@ fn piix4_init() {
 
     // make all pci irq lines level triggered since pci irq lines are always level triggered.
     for irq in [
-        I8259Irq::INTA,
-        I8259Irq::INTB,
-        I8259Irq::INTC,
-        I8259Irq::INTD,
+        I8259IrqNum::INTA,
+        I8259IrqNum::INTB,
+        I8259IrqNum::INTC,
+        I8259IrqNum::INTD,
     ] {
         piix4_set_irq_trigger_mode(irq, Piix4IrqTriggerMode::LevelTriggered);
     }
 }
 
-fn piix4_set_irq_trigger_mode(irq: u8, mode: Piix4IrqTriggerMode) {
-    // make sure that the irq number is in range
-    assert!(irq < I8259Chain::IRQ_LINES_AMOUNT as u8);
-
-    // some irqs are reserved and can not be changed
-    pub const RESERVED_IRQS: &[u8] = &[0, 1, 2, 8, 13];
-    assert!(!RESERVED_IRQS.contains(&irq));
-
+fn piix4_set_irq_trigger_mode(irq: I8259IrqNum, mode: Piix4IrqTriggerMode) {
     // for controlling the irq trigger mode, there are two 8-bit registers, where each bit represents the mode of a single irq line.
     //
     // so, we need to decide which register we want to use and the bit offset inside that register according to the irq line number
     // that was provided.
-    let reg = if irq < 8 {
+    let reg = if irq.0 < 8 {
         Piix4IoRegs::irq_trigger_mode_reg_1()
     } else {
         Piix4IoRegs::irq_trigger_mode_reg_1()
     };
-    let bit_offset = irq % 8;
+    let bit_offset = irq.0 % 8;
 
     let mut value = reg.read();
     value.set_bit(bit_offset as usize, (mode as u8) != 0);

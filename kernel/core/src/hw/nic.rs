@@ -10,9 +10,8 @@ use volatile::{
 };
 
 use crate::{
-    hw::{
-        interrupts::I8259Irq,
-        pci::{PciBarKind, PciConfigRegCommand, PciConfigRegCommandFields, PciInterruptPin},
+    hw::pci::{
+        PciBarKind, PciConfigRegCommand, PciConfigRegCommandFields, PciInterruptPin, PciIrqNum,
     },
     println,
 };
@@ -40,6 +39,10 @@ pub const ETH_HDR_LEN: usize = ETH_ADDR_LEN * 2 + 2;
 const NIC_BUF_SIZE: usize = ETH_MAX_MTU + ETH_HDR_LEN;
 
 pub const NIC_ETH_ADDR: EthAddr = EthAddr([0x44; ETH_ADDR_LEN]);
+
+/// the pci irq number of the nic.
+/// on the mips malta board, the nic is hardwired to use INTB.
+const NIC_PCI_IRQ_NUM: PciIrqNum = PciIrqNum::IntB;
 
 pub fn nic_init() -> Option<Nic> {
     let Some(dev) = pci_find(PciId::AM79C970) else {
@@ -89,16 +92,13 @@ pub fn nic_init() -> Option<Nic> {
         ));
     });
 
-    // configure the nic to use the pci INTB irq line.
-    //
-    // on the mips malta board, the nic is hardwired to use INTB, and can't really be configured to use any other line,
-    // so we configure it to use INTB.
+    // configure the nic's interrupt pin
     dev.config_reg15().modify(|reg| {
-        reg.set_interrupt_pin(PciInterruptPin::INTB);
+        reg.set_interrupt_pin(PciInterruptPin::new(Some(NIC_PCI_IRQ_NUM)));
     });
 
-    // unmask the pci INTB irq so that we can receive interrupts from the nic
-    PIIX4_I8259_CHAIN.set_irq_mask(I8259Irq::INTB, false);
+    // unmask the corresponding pci irq so that we can receive interrupts from the nic
+    PIIX4_I8259_CHAIN.set_irq_mask(NIC_PCI_IRQ_NUM.i8259_irq_num(), false);
 
     // perform a 32-bit write to the RDP to configure the NIC to use dword io instead of word io.
     regs.rdp().write(0);

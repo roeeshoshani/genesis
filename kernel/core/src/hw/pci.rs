@@ -12,6 +12,8 @@ use crate::{
     hw::interrupts::with_interrupts_disabled, mem::align_up, sync::IrqSpinlock, utils::HexDisplay,
 };
 
+use super::interrupts::I8259IrqNum;
+
 /// the maximum amount of BARs that a single function may have.
 const PCI_MAX_BARS: usize = 6;
 
@@ -598,11 +600,15 @@ pub struct PciInterruptPin {
     value: u8,
 }
 impl PciInterruptPin {
-    pub const NO_INTERRUPT_PIN: Self = Self { storage: 0 };
-    pub const INTA: Self = Self { storage: 1 };
-    pub const INTB: Self = Self { storage: 2 };
-    pub const INTC: Self = Self { storage: 3 };
-    pub const INTD: Self = Self { storage: 4 };
+    pub const fn new(pin: Option<PciIrqNum>) -> Self {
+        match pin {
+            Some(pin) => Self {
+                // the +1 is because a value of zero represents no interrupt pin
+                storage: (pin as u8) + 1,
+            },
+            None => Self { storage: 0 },
+        }
+    }
 }
 
 #[bitpiece(32)]
@@ -780,6 +786,30 @@ pub fn pci_find(id: PciId) -> Option<PciFunction> {
         }
     });
     result
+}
+
+/// the pci interrupt handler. the irq argument specifies which pci interrupt line was raised - INTA, INTB, INTC or INTD.
+pub fn pci_interrupt_handler(irq: PciIrqNum) {
+    crate::println!("got pci irq {:?}", irq);
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[repr(u8)]
+pub enum PciIrqNum {
+    IntA = 0,
+    IntB = 1,
+    IntC = 2,
+    IntD = 3,
+}
+impl PciIrqNum {
+    pub fn i8259_irq_num(&self) -> I8259IrqNum {
+        match self {
+            PciIrqNum::IntA => I8259IrqNum::INTA,
+            PciIrqNum::IntB => I8259IrqNum::INTB,
+            PciIrqNum::IntC => I8259IrqNum::INTC,
+            PciIrqNum::IntD => I8259IrqNum::INTD,
+        }
+    }
 }
 
 pub struct Piix4CorePciFunction {
