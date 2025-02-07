@@ -9,11 +9,11 @@ use core::{
 
 use alloc::{boxed::Box, sync::Arc, task::Wake, vec::Vec};
 
-use crate::sync::IrqSpinlock;
+use crate::sync::IrqLock;
 
 pub struct Task {
     should_be_polled: AtomicBool,
-    future: IrqSpinlock<Pin<Box<dyn Future<Output = ()> + 'static + Send>>>,
+    future: IrqLock<Pin<Box<dyn Future<Output = ()> + 'static + Send>>>,
 }
 impl Wake for Task {
     fn wake(self: Arc<Self>) {
@@ -64,7 +64,7 @@ impl Executor {
     {
         self.tasks.push(Arc::new(Task {
             should_be_polled: AtomicBool::new(true),
-            future: IrqSpinlock::new(Box::pin(task)),
+            future: IrqLock::new(Box::pin(task)),
         }));
     }
 
@@ -77,7 +77,7 @@ impl Executor {
     }
 }
 
-pub static EXECUTOR: IrqSpinlock<Executor> = IrqSpinlock::new(Executor::new());
+pub static EXECUTOR: IrqLock<Executor> = IrqLock::new(Executor::new());
 
 pub struct SleepForever;
 pub async fn sleep_forever() -> SleepForever {

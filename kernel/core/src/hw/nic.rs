@@ -25,7 +25,7 @@ use crate::{
 };
 
 use super::{
-    interrupts::{with_interrupts_disabled, PIIX4_I8259_CHAIN},
+    interrupts::PIIX4_I8259_CHAIN,
     pci::{pci_find, PciFunction, PciId},
 };
 
@@ -586,20 +586,16 @@ impl NicRegs {
         }
     }
     pub fn read_csr(&mut self, index: u8) -> u32 {
-        // do this with interrupts disabled to prevent an interrupt handler from overwriting the rap register while
-        // we are operating
-        with_interrupts_disabled! {
-            self.rap().write(index as u32);
-            self.rdp().read()
-        }
+        // the mutable reference to self guarantees exclusive access here, so no one can overwrite the `rap` while we are
+        // running here.
+        self.rap().write(index as u32);
+        self.rdp().read()
     }
     pub fn write_csr(&mut self, index: u8, value: u32) {
-        // do this with interrupts disabled to prevent an interrupt handler from overwriting the rap register while
-        // we are operating
-        with_interrupts_disabled! {
-            self.rap().write(index as u32);
-            self.rdp().write(value)
-        }
+        // the mutable reference to self guarantees exclusive access here, so no one can overwrite the `rap` while we are
+        // running here.
+        self.rap().write(index as u32);
+        self.rdp().write(value)
     }
     pub fn bcr<T: BitPiece<Bits = u16>>(&mut self, index: u8) -> NicBcr<T> {
         NicBcr {
@@ -609,20 +605,16 @@ impl NicRegs {
         }
     }
     pub fn read_bcr(&mut self, index: u8) -> u32 {
-        // do this with interrupts disabled to prevent an interrupt handler from overwriting the rap register while
-        // we are operating
-        with_interrupts_disabled! {
-            self.rap().write(index as u32);
-            self.bdp().read()
-        }
+        // the mutable reference to self guarantees exclusive access here, so no one can overwrite the `rap` while we are
+        // running here.
+        self.rap().write(index as u32);
+        self.bdp().read()
     }
     pub fn write_bcr(&mut self, index: u8, value: u32) {
-        // do this with interrupts disabled to prevent an interrupt handler from overwriting the rap register while
-        // we are operating
-        with_interrupts_disabled! {
-            self.rap().write(index as u32);
-            self.bdp().write(value)
-        }
+        // the mutable reference to self guarantees exclusive access here, so no one can overwrite the `rap` while we are
+        // running here.
+        self.rap().write(index as u32);
+        self.bdp().write(value)
     }
     pub fn csr0(&mut self) -> NicCsr<NicCsr0> {
         self.csr(0)

@@ -2,7 +2,7 @@ use core::{mem::ManuallyDrop, ptr::NonNull};
 
 use hal::mem::{PhysAddr, PhysMemRegion, RAM_0};
 
-use crate::sync::IrqSpinlock;
+use crate::sync::IrqLock;
 
 use super::{
     align_down, align_up,
@@ -208,7 +208,7 @@ struct ChosenChunk {
     page_size: usize,
 }
 
-static PAGE_ALLOCATOR: IrqSpinlock<PageAllocator> = IrqSpinlock::new(PageAllocator::new());
+static PAGE_ALLOCATOR: IrqLock<PageAllocator> = IrqLock::new(PageAllocator::new());
 
 /// initializes the page allocator.
 pub fn page_allocator_init() {

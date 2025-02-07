@@ -9,7 +9,7 @@ use hal::mem::{PhysAddr, VirtAddr};
 
 use crate::{
     mem::{is_aligned, page_alloc::alloc_pages},
-    sync::IrqSpinlock,
+    sync::IrqLock,
 };
 
 use super::{
@@ -383,10 +383,10 @@ struct ChosenChunk {
     alignment_padding: usize,
 }
 
-pub struct PhysAllocator(IrqSpinlock<RawPhysAllocator>);
+pub struct PhysAllocator(IrqLock<RawPhysAllocator>);
 impl PhysAllocator {
     pub const fn new() -> Self {
-        Self(IrqSpinlock::new(RawPhysAllocator::new()))
+        Self(IrqLock::new(RawPhysAllocator::new()))
     }
 }
 unsafe impl Allocator for PhysAllocator {

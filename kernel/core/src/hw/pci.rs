@@ -9,9 +9,8 @@ use hal::{
 use thiserror_no_std::Error;
 
 use crate::{
-    hw::interrupts::with_interrupts_disabled,
     mem::align_up,
-    sync::IrqSpinlock,
+    sync::IrqLock,
     utils::{
         callback_chain::{CallbackChain, CallbackChainFn, CallbackChainNode},
         HexDisplay,
@@ -100,26 +99,42 @@ pub struct PhysMemBumpAllocatorError {
 /// the size of the address range of the memory mapped piix4 io registers at the start of the PCI I/O 0 address space.
 const PIIX4_IO_SPACE_SIZE: usize = 0x1000;
 
-static PCI_IO_SPACE_ALLOCATOR: IrqSpinlock<PhysMemBarBumpAllocator> =
-    IrqSpinlock::new(PhysMemBarBumpAllocator::new(PCI_0_IO, PIIX4_IO_SPACE_SIZE));
-static PCI_MEM_SPACE_ALLOCATOR: IrqSpinlock<PhysMemBarBumpAllocator> =
-    IrqSpinlock::new(PhysMemBarBumpAllocator::new(PCI_0_MEM, 0));
+static PCI_IO_SPACE_ALLOCATOR: IrqLock<PhysMemBarBumpAllocator> =
+    IrqLock::new(PhysMemBarBumpAllocator::new(PCI_0_IO, PIIX4_IO_SPACE_SIZE));
+static PCI_MEM_SPACE_ALLOCATOR: IrqLock<PhysMemBarBumpAllocator> =
+    IrqLock::new(PhysMemBarBumpAllocator::new(PCI_0_MEM, 0));
 
-pub fn pci_config_read(addr: PciConfigAddr) -> u32 {
-    // do this with interrupts disabled to prevent an interrupt handler from overwriting the pci config register while
-    // we are operating
-    with_interrupts_disabled! {
+/// a lock for protecting access to pci configuration space.
+///
+/// this is required due to the way accessing pci configuration space is implemented.
+/// you must first write the address to one register, and then you can read/write the data from another register.
+/// and, without using a lock, someone might overwrite the address register after you wrote to it, thus causing your write
+/// to write to another address than the one you intended.
+static PCI_CONFIG_SPACE_LOCK: IrqLock<PciConfigSpace> = IrqLock::new(PciConfigSpace);
+
+struct PciConfigSpace;
+impl PciConfigSpace {
+    fn read(&mut self, addr: PciConfigAddr) -> u32 {
+        // the mutable reference to self guarantees exclusive access here, so no one can overwrite the address while we are
+        // running here.
         Gt64120Regs::pci_0_config_addr().write(addr.to_bits());
         Gt64120Regs::pci_0_config_data().read()
     }
-}
-pub fn pci_config_write(addr: PciConfigAddr, value: u32) {
-    // do this with interrupts disabled to prevent an interrupt handler from overwriting the pci config register while
-    // we are operating
-    with_interrupts_disabled! {
+    fn write(&mut self, addr: PciConfigAddr, value: u32) {
+        // the mutable reference to self guarantees exclusive access here, so no one can overwrite the address while we are
+        // running here.
         Gt64120Regs::pci_0_config_addr().write(addr.to_bits());
         Gt64120Regs::pci_0_config_data().write(value);
     }
+}
+
+pub fn pci_config_read(addr: PciConfigAddr) -> u32 {
+    let mut config_space = PCI_CONFIG_SPACE_LOCK.lock();
+    config_space.read(addr)
+}
+pub fn pci_config_write(addr: PciConfigAddr, value: u32) {
+    let mut config_space = PCI_CONFIG_SPACE_LOCK.lock();
+    config_space.write(addr, value)
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]

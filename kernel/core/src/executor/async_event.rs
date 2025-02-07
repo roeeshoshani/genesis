@@ -2,15 +2,15 @@ use core::task::Waker;
 
 use alloc::vec::Vec;
 
-use crate::sync::{IrqSpinlock, IrqSpinlockGuard};
+use crate::sync::{IrqLock, IrqLockGuard};
 
 pub struct AsyncEvent {
-    wakers: IrqSpinlock<Vec<Waker>>,
+    wakers: IrqLock<Vec<Waker>>,
 }
 impl AsyncEvent {
     pub const fn new() -> Self {
         Self {
-            wakers: IrqSpinlock::new(Vec::new()),
+            wakers: IrqLock::new(Vec::new()),
         }
     }
     /// start listening to this event, such that once the event is triggered, the given waker will be
@@ -37,7 +37,7 @@ impl AsyncEvent {
 }
 
 pub struct AsyncEventListenerHandle<'a> {
-    wakers: IrqSpinlockGuard<'a, Vec<Waker>>,
+    wakers: IrqLockGuard<'a, Vec<Waker>>,
 }
 impl<'a> AsyncEventListenerHandle<'a> {
     pub fn stop_listening(&mut self) {

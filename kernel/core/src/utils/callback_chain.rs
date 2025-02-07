@@ -2,7 +2,7 @@ use core::{pin::Pin, ptr::NonNull};
 
 use alloc::boxed::Box;
 
-use crate::sync::IrqSpinlock;
+use crate::sync::IrqLock;
 
 type CallbackLink = Option<NonNull<Callback>>;
 
@@ -17,12 +17,12 @@ struct Callback {
 }
 
 pub struct CallbackChain {
-    head_link: IrqSpinlock<CallbackLink>,
+    head_link: IrqLock<CallbackLink>,
 }
 impl CallbackChain {
     pub const fn new() -> Self {
         Self {
-            head_link: IrqSpinlock::new(None),
+            head_link: IrqLock::new(None),
         }
     }
     pub fn register<F>(&'static self, callback: F) -> CallbackChainNode
