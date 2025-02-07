@@ -6,7 +6,7 @@ use core::{
     task::{Context, Poll},
 };
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, sync::Arc};
 use bitpiece::*;
 use hal::mem::VirtAddr;
 use static_assertions::const_assert_eq;
@@ -18,10 +18,13 @@ use volatile::{
 use crate::{
     executor::sleep_forever,
     hw::pci::{
-        PciBarKind, PciConfigRegCommand, PciConfigRegCommandFields, PciInterruptPin, PciIrqNum,
+        pci_interrupt_handler_register, PciBarKind, PciConfigRegCommand, PciConfigRegCommandFields,
+        PciInterruptPin, PciIrqNum,
     },
     mem::phys_alloc::BoxPhysAddr,
     println,
+    sync::IrqLock,
+    utils::callback_chain::CallbackChainNode,
 };
 
 use super::{
@@ -69,7 +72,7 @@ pub async fn nic_init_one(pci_function: PciFunction) {
     assert_eq!(bar.kind(), PciBarKind::Io);
     assert_eq!(mapped_bar.size, NIC_BAR_SIZE);
 
-    let mut regs = NicRegs {
+    let mut regs_inner = NicRegsInner {
         addr: mapped_bar.addr.kseg_uncachable_addr().unwrap(),
         size: mapped_bar.size,
     };
@@ -114,17 +117,17 @@ pub async fn nic_init_one(pci_function: PciFunction) {
     PIIX4_I8259_CHAIN.set_irq_mask(NIC_PCI_IRQ_NUM.i8259_irq_num(), false);
 
     // perform a 32-bit write to the RDP to configure the NIC to use dword io instead of word io.
-    regs.rdp().write(0);
+    regs_inner.rdp().write(0);
 
     // set the nic's software style to the preferred style.
     // the pcnet-pci style supports 32-bit software structures and provides all features, so it is the best choice for us.
-    regs.bcr20().modify(|reg| {
+    regs_inner.bcr20().modify(|reg| {
         reg.set_software_style(NicSoftwareStyle::PcnetPci);
     });
 
     // make sure that the device uses 32-bit software structures. we currently don't support the 16-bit mode.
     // we chose the pcnet-pci software style, which should support 32-bit software structures.
-    assert!(regs.bcr20().read().software_size_32());
+    assert!(regs_inner.bcr20().read().software_size_32());
 
     // allocate rx and tx ring buffers for the nic
     let rings = NicRings::new();
@@ -134,15 +137,15 @@ pub async fn nic_init_one(pci_function: PciFunction) {
     let init_block_phys_addr = init_block.phys_addr();
 
     // write the address of the initialization block
-    regs.csr1().write(NicCsr1::from_fields(NicCsr1Fields {
+    regs_inner.csr1().write(NicCsr1::from_fields(NicCsr1Fields {
         init_block_addr_low: (init_block_phys_addr.0 & 0xffff) as u16,
     }));
-    regs.csr2().write(NicCsr2::from_fields(NicCsr2Fields {
+    regs_inner.csr2().write(NicCsr2::from_fields(NicCsr2Fields {
         init_block_addr_high: ((init_block_phys_addr.0 >> 16) & 0xffff) as u16,
     }));
 
     // start the nic initialization process
-    regs.csr0().write(NicCsr0::from_fields(NicCsr0Fields {
+    regs_inner.csr0().write(NicCsr0::from_fields(NicCsr0Fields {
         init: true,
         start: false,
         stop: false,
@@ -161,16 +164,31 @@ pub async fn nic_init_one(pci_function: PciFunction) {
         any_err: false,
     }));
 
-    let mut nic = Nic {
+    let regs = NicRegs(Arc::new(IrqLock::new(regs_inner)));
+
+    let interrupt_handler_callback_node = pci_interrupt_handler_register(NIC_PCI_IRQ_NUM, {
+        let regs = regs.clone();
+        move || {
+            nic_interrupt_handler(&regs);
+        }
+    });
+
+    let nic = Nic {
         pci_function,
         rings,
         regs,
         init_block: Some(init_block),
+        interrupt_handler_callback_node,
     };
 
     nic.wait_for_init_done().await;
 
     sleep_forever().await;
+}
+
+fn nic_interrupt_handler(nic_regs: &NicRegs) {
+    let regs = nic_regs.0.lock();
+    todo!();
 }
 
 /// rx and tx rings for the nic.
@@ -283,45 +301,49 @@ pub struct Nic {
     /// the nic's initialization block.
     /// only used during early nic initialization.
     init_block: Option<Pin<Box<InitBlock>>>,
+
+    interrupt_handler_callback_node: CallbackChainNode<'static>,
 }
 impl Nic {
-    fn set_interrupts_enabled(&mut self, enabled: bool) {
-        self.regs.csr0().modify(|reg| {
-            reg.set_interrupts_enabled(enabled);
-        });
+    fn set_interrupts_enabled(&self, enabled: bool) {
+        let mut regs = self.regs.0.lock();
+        regs.set_interrupts_enabled(enabled);
     }
-    fn enable_interrupts(&mut self) {
+    fn enable_interrupts(&self) {
         self.set_interrupts_enabled(true);
     }
-    fn disable_interrupts(&mut self) {
+    fn disable_interrupts(&self) {
         self.set_interrupts_enabled(false);
     }
-    fn wait_for_init_done(&mut self) -> NicWaitForInitDone {
-        NicWaitForInitDone { nic: self }
+    fn wait_for_init_done(&self) -> NicWaitForInitDone {
+        NicWaitForInitDone {
+            nic_regs: self.regs.clone(),
+        }
     }
 }
 
-struct NicWaitForInitDone<'a> {
-    nic: &'a mut Nic,
+struct NicWaitForInitDone {
+    nic_regs: NicRegs,
 }
-impl<'a> Future for NicWaitForInitDone<'a> {
+impl Future for NicWaitForInitDone {
     type Output = ();
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut regs = self.nic_regs.0.lock();
         // try checking if the nic signaled to us that it is done initializing.
         //
         // the nic interrupts are level triggered so we do not need to start listening for interrupts before polling.
-        if self.nic.regs.csr0().read().initialization_done() {
+        if regs.csr0().read().initialization_done() {
             // disable interrupts. the nic will keep holding the interrupt line up until the event is handled, but we don't
             // wait to handle it immediately.
-            self.nic.disable_interrupts();
+            regs.disable_interrupts();
             Poll::Ready(())
         } else {
             // enable and listen for interrupts from the nic. the nic will trigger an interrupt once it is done initializing.
             //
             // TODO: do the below using the callback chain mechanism somehow
             // pci_listen_for_interrupt(NIC_PCI_IRQ_NUM, cx.waker().clone());
-            self.nic.enable_interrupts();
+            regs.enable_interrupts();
             Poll::Pending
         }
     }
@@ -511,11 +533,15 @@ impl RingEntriesAmountVal {
     }
 }
 
-pub struct NicRegs {
+#[derive(Debug, Clone)]
+pub struct NicRegs(pub Arc<IrqLock<NicRegsInner>>);
+
+#[derive(Debug)]
+pub struct NicRegsInner {
     addr: VirtAddr,
     size: usize,
 }
-impl NicRegs {
+impl NicRegsInner {
     /// returns a pointer to the register at the given offset.
     ///
     /// # safety
@@ -640,6 +666,18 @@ impl NicRegs {
     }
     pub fn bcr20(&mut self) -> NicBcr<NicBcr20> {
         self.bcr(20)
+    }
+
+    fn set_interrupts_enabled(&mut self, enabled: bool) {
+        self.csr0().modify(|reg| {
+            reg.set_interrupts_enabled(enabled);
+        });
+    }
+    fn enable_interrupts(&mut self) {
+        self.set_interrupts_enabled(true);
+    }
+    fn disable_interrupts(&mut self) {
+        self.set_interrupts_enabled(false);
     }
 }
 
@@ -999,7 +1037,7 @@ pub struct NicBcrValue {
 /// a control status register of the NIC.
 pub struct NicCsr<'a, T: BitPiece<Bits = u16>> {
     csr_index: u8,
-    nic_regs: &'a mut NicRegs,
+    nic_regs: &'a mut NicRegsInner,
     phantom: PhantomData<T>,
 }
 impl<'a, T: BitPiece<Bits = u16>> NicCsr<'a, T> {
@@ -1027,7 +1065,7 @@ impl<'a, T: BitPiece<Bits = u16>> NicCsr<'a, T> {
 /// a bus control register of the NIC.
 pub struct NicBcr<'a, T: BitPiece<Bits = u16>> {
     bcr_index: u8,
-    nic_regs: &'a mut NicRegs,
+    nic_regs: &'a mut NicRegsInner,
     phantom: PhantomData<T>,
 }
 impl<'a, T: BitPiece<Bits = u16>> NicBcr<'a, T> {

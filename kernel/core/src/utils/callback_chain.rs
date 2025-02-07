@@ -65,6 +65,8 @@ pub struct CallbackChainNode<'a> {
     callback: Pin<Box<Callback>>,
     phantom: PhantomData<&'a ()>,
 }
+unsafe impl<'a> Send for CallbackChainNode<'a> {}
+unsafe impl<'a> Sync for CallbackChainNode<'a> {}
 impl<'a> Drop for CallbackChainNode<'a> {
     fn drop(&mut self) {
         // when dropping the node, we want to unlink it from the list.
