@@ -1,4 +1,4 @@
-use core::{marker::PhantomData, ops::Range};
+use core::{marker::PhantomData, ops::Range, task::Waker};
 
 use arrayvec::ArrayVec;
 use bitpiece::*;
@@ -9,13 +9,20 @@ use hal::{
 use thiserror_no_std::Error;
 
 use crate::{
-    hw::interrupts::with_interrupts_disabled, mem::align_up, sync::IrqSpinlock, utils::HexDisplay,
+    executor::async_event::{AsyncEvent, AsyncEventListenerHandle},
+    hw::interrupts::with_interrupts_disabled,
+    mem::align_up,
+    sync::IrqSpinlock,
+    utils::HexDisplay,
 };
 
 use super::interrupts::I8259IrqNum;
 
 /// the maximum amount of BARs that a single function may have.
 const PCI_MAX_BARS: usize = 6;
+
+/// PCI has 4 irq lines: INTA, INTB, INTC and INTD.
+pub const PCI_IRQ_LINES_AMOUNT: usize = 4;
 
 pub type PciRegNum = B6;
 pub type PciFunctionNum = B3;
@@ -788,9 +795,18 @@ pub fn pci_find(id: PciId) -> Option<PciFunction> {
     result
 }
 
+static PCI_INTERRUPT_EVENTS: [AsyncEvent; PCI_IRQ_LINES_AMOUNT] =
+    [const { AsyncEvent::new() }; PCI_IRQ_LINES_AMOUNT];
+
+pub fn pci_listen_for_interrupt(irq: PciIrqNum, waker: Waker) -> AsyncEventListenerHandle<'static> {
+    let event = &PCI_INTERRUPT_EVENTS[irq as usize];
+    event.listen(waker)
+}
+
 /// the pci interrupt handler. the irq argument specifies which pci interrupt line was raised - INTA, INTB, INTC or INTD.
 pub fn pci_interrupt_handler(irq: PciIrqNum) {
-    crate::println!("got pci irq {:?}", irq);
+    let event = &PCI_INTERRUPT_EVENTS[irq as usize];
+    event.trigger();
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

@@ -15,9 +15,6 @@ use volatile::VolatilePtr;
 
 use crate::hw::{pci::*, uart::uart_interrupt_handler};
 
-/// PCI has 4 irq lines: INTA, INTB, INTC and INTD.
-pub const PCI_IRQ_LINES_AMOUNT: usize = 4;
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct I8259IrqNum(pub u8);
 impl I8259IrqNum {

@@ -18,7 +18,8 @@ use volatile::{
 use crate::{
     executor::sleep_forever,
     hw::pci::{
-        PciBarKind, PciConfigRegCommand, PciConfigRegCommandFields, PciInterruptPin, PciIrqNum,
+        pci_listen_for_interrupt, PciBarKind, PciConfigRegCommand, PciConfigRegCommandFields,
+        PciInterruptPin, PciIrqNum,
     },
     mem::phys_alloc::BoxPhysAddr,
     println,
@@ -302,7 +303,9 @@ impl<'a> Future for NicWaitForInitDone<'a> {
         if self.nic.regs.csr0().read().initialization_done() {
             Poll::Ready(())
         } else {
-            todo!("listen for interrupts");
+            // listen for interrupts from the nic. the nic will trigger an interrupt once it is done initializing.
+            pci_listen_for_interrupt(NIC_PCI_IRQ_NUM, cx.waker().clone());
+            Poll::Pending
         }
     }
 }
