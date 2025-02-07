@@ -9,7 +9,7 @@ use core::panic::PanicInfo;
 use executor::EXECUTOR;
 use hw::{
     interrupts::{interrupts_disable, interrupts_enable, interrupts_init, wait_for_interrupt},
-    nic::nic_init,
+    nic::nic_task,
     uart::{uart_init, uart_task},
 };
 use mem::page_alloc::page_allocator_init;
@@ -32,6 +32,7 @@ fn panic(info: &PanicInfo) -> ! {
 fn spawn_initial_tasks() {
     let mut executor = EXECUTOR.lock();
     executor.spawn(uart_task());
+    executor.spawn(nic_task());
 }
 
 /// returns whether we finished executing all tasks
@@ -65,8 +66,6 @@ extern "C" fn _start() -> ! {
 
     // done initializing, enable interrupts
     interrupts_enable();
-
-    let _nic = nic_init();
 
     main_loop();
 }

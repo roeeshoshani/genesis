@@ -1,8 +1,10 @@
 use core::{
     alloc::{AllocError, Allocator, GlobalAlloc, Layout},
+    pin::Pin,
     ptr::{null_mut, NonNull},
 };
 
+use alloc::boxed::Box;
 use hal::mem::{PhysAddr, VirtAddr};
 
 use crate::{
@@ -452,3 +454,26 @@ unsafe impl Send for PhysAllocator {}
 
 #[global_allocator]
 pub static PHYS_ALLOCATOR: PhysAllocator = PhysAllocator::new();
+
+/// a trait for getting the physical address of a boxed value.
+pub trait BoxPhysAddr {
+    fn phys_addr(&self) -> PhysAddr;
+}
+impl<T> BoxPhysAddr for Box<T> {
+    fn phys_addr(&self) -> PhysAddr {
+        let inner_value_ref: &T = &*self;
+        let virt_addr = VirtAddr(inner_value_ref as *const T as usize);
+
+        // virtual addresses returned from our allocator use the kseg cachable memory region
+        virt_addr.kseg_cachable_phys_addr().unwrap()
+    }
+}
+impl<T> BoxPhysAddr for Pin<Box<T>> {
+    fn phys_addr(&self) -> PhysAddr {
+        let inner_value_ref: &T = &*self;
+        let virt_addr = VirtAddr(inner_value_ref as *const T as usize);
+
+        // virtual addresses returned from our allocator use the kseg cachable memory region
+        virt_addr.kseg_cachable_phys_addr().unwrap()
+    }
+}

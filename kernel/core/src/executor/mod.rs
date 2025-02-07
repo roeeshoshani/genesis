@@ -78,3 +78,15 @@ impl Executor {
 }
 
 pub static EXECUTOR: IrqSpinlock<Executor> = IrqSpinlock::new(Executor::new());
+
+pub struct SleepForever;
+pub async fn sleep_forever() -> SleepForever {
+    SleepForever
+}
+impl Future for SleepForever {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Poll::Pending
+    }
+}
