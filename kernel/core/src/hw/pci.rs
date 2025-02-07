@@ -1,4 +1,4 @@
-use core::{marker::PhantomData, ops::Range, task::Waker};
+use core::{marker::PhantomData, ops::Range};
 
 use arrayvec::ArrayVec;
 use bitpiece::*;
@@ -9,11 +9,13 @@ use hal::{
 use thiserror_no_std::Error;
 
 use crate::{
-    executor::async_event::{AsyncEvent, AsyncEventListenerHandle},
     hw::interrupts::with_interrupts_disabled,
     mem::align_up,
     sync::IrqSpinlock,
-    utils::HexDisplay,
+    utils::{
+        callback_chain::{CallbackChain, CallbackChainFn, CallbackChainNode},
+        HexDisplay,
+    },
 };
 
 use super::interrupts::I8259IrqNum;
@@ -795,18 +797,21 @@ pub fn pci_find(id: PciId) -> Option<PciFunction> {
     result
 }
 
-static PCI_INTERRUPT_EVENTS: [AsyncEvent; PCI_IRQ_LINES_AMOUNT] =
-    [const { AsyncEvent::new() }; PCI_IRQ_LINES_AMOUNT];
+static PCI_INTERRUPT_CALLBACK_CHAINS: [CallbackChain; PCI_IRQ_LINES_AMOUNT] =
+    [const { CallbackChain::new() }; PCI_IRQ_LINES_AMOUNT];
 
-pub fn pci_listen_for_interrupt(irq: PciIrqNum, waker: Waker) -> AsyncEventListenerHandle<'static> {
-    let event = &PCI_INTERRUPT_EVENTS[irq as usize];
-    event.listen(waker)
+pub fn pci_interrupt_handler_register<F: CallbackChainFn>(
+    irq: PciIrqNum,
+    callback: F,
+) -> CallbackChainNode {
+    let chain = &PCI_INTERRUPT_CALLBACK_CHAINS[irq as usize];
+    chain.register(callback)
 }
 
 /// the pci interrupt handler. the irq argument specifies which pci interrupt line was raised - INTA, INTB, INTC or INTD.
 pub fn pci_interrupt_handler(irq: PciIrqNum) {
-    let event = &PCI_INTERRUPT_EVENTS[irq as usize];
-    event.trigger();
+    let chain = &PCI_INTERRUPT_CALLBACK_CHAINS[irq as usize];
+    chain.trigger();
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
