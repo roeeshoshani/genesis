@@ -38,12 +38,16 @@ pub struct PhysMemBarBumpAllocator {
     cur_addr: usize,
 }
 impl PhysMemBarBumpAllocator {
-    pub const fn new(region: PhysMemRegion) -> Self {
+    pub const fn new(region: PhysMemRegion, start_offset: usize) -> Self {
         Self {
             region,
-            // note the +1 that is added to the original address here. this is done so that we don't allocate address 0,
-            // since that's an invalid BAR address.
-            cur_addr: region.start.0 + 0x1,
+            cur_addr: if start_offset == 0 {
+                // if we have been requested to start allocating from the very start of the region, add 1 byte to the address.
+                // this is done so that we don't allocate address 0, since that's an invalid BAR address.
+                region.start.0 + 1
+            } else {
+                region.start.0 + start_offset
+            },
         }
     }
     pub fn alloc(&mut self, size: usize) -> Result<PhysAddr, PhysMemBumpAllocatorError> {
@@ -86,14 +90,9 @@ pub struct PhysMemBumpAllocatorError {
 const PIIX4_IO_SPACE_SIZE: usize = 0x1000;
 
 static PCI_IO_SPACE_ALLOCATOR: IrqSpinlock<PhysMemBarBumpAllocator> =
-    IrqSpinlock::new(PhysMemBarBumpAllocator::new(PhysMemRegion {
-        // to avoid allocating the io space used by the piix4 io registers to other pci device, we just exclude it from the allocation
-        // region here.
-        start: PhysAddr(PCI_0_IO.start.0 + PIIX4_IO_SPACE_SIZE),
-        inclusive_end: PCI_0_IO.inclusive_end,
-    }));
+    IrqSpinlock::new(PhysMemBarBumpAllocator::new(PCI_0_IO, PIIX4_IO_SPACE_SIZE));
 static PCI_MEM_SPACE_ALLOCATOR: IrqSpinlock<PhysMemBarBumpAllocator> =
-    IrqSpinlock::new(PhysMemBarBumpAllocator::new(PCI_0_MEM));
+    IrqSpinlock::new(PhysMemBarBumpAllocator::new(PCI_0_MEM, 0));
 
 pub fn pci_config_read(addr: PciConfigAddr) -> u32 {
     // do this with interrupts disabled to prevent an interrupt handler from overwriting the pci config register while
