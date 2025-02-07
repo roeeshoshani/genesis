@@ -149,7 +149,7 @@ pub async fn nic_init_one(pci_function: PciFunction) {
         transmit_demand: false,
         tx_on: true,
         rx_on: true,
-        interrupts_enabled: true,
+        interrupts_enabled: false,
         interrupt_pending: false,
         initialization_done: false,
         tx_interrupt: true,
@@ -285,6 +285,17 @@ pub struct Nic {
     init_block: Option<Pin<Box<InitBlock>>>,
 }
 impl Nic {
+    fn set_interrupts_enabled(&mut self, enabled: bool) {
+        self.regs.csr0().modify(|reg| {
+            reg.set_interrupts_enabled(enabled);
+        });
+    }
+    fn enable_interrupts(&mut self) {
+        self.set_interrupts_enabled(true);
+    }
+    fn disable_interrupts(&mut self) {
+        self.set_interrupts_enabled(false);
+    }
     fn wait_for_init_done(&mut self) -> NicWaitForInitDone {
         NicWaitForInitDone { nic: self }
     }
@@ -301,10 +312,14 @@ impl<'a> Future for NicWaitForInitDone<'a> {
         //
         // the nic interrupts are level triggered so we do not need to start listening for interrupts before polling.
         if self.nic.regs.csr0().read().initialization_done() {
+            // disable interrupts. the nic will keep holding the interrupt line up until the event is handled, but we don't
+            // wait to handle it immediately.
+            self.nic.disable_interrupts();
             Poll::Ready(())
         } else {
-            // listen for interrupts from the nic. the nic will trigger an interrupt once it is done initializing.
+            // enable and listen for interrupts from the nic. the nic will trigger an interrupt once it is done initializing.
             pci_listen_for_interrupt(NIC_PCI_IRQ_NUM, cx.waker().clone());
+            self.nic.enable_interrupts();
             Poll::Pending
         }
     }
