@@ -8,10 +8,7 @@ extern crate alloc;
 use core::panic::PanicInfo;
 use executor::EXECUTOR;
 use hw::{
-    interrupts::{
-        interrupts_disable, interrupts_enable, interrupts_init, wait_for_interrupt,
-        PIIX4_I8259_CHAIN,
-    },
+    interrupts::{interrupts_disable, interrupts_enable, interrupts_init, wait_for_interrupt},
     nic::nic_init,
     uart::{uart_init, uart_task},
 };
@@ -27,7 +24,9 @@ pub mod utils;
 fn panic(info: &PanicInfo) -> ! {
     interrupts_disable();
     println!("{}", info);
-    loop {}
+    loop {
+        wait_for_interrupt();
+    }
 }
 
 fn spawn_initial_tasks() {

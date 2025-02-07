@@ -18,17 +18,14 @@ use crate::hw::{pci::*, uart::uart_interrupt_handler};
 /// PCI has 4 irq lines: INTA, INTB, INTC and INTD.
 pub const PCI_IRQ_LINES_AMOUNT: usize = 4;
 
-/// the i8259 interrupt line of the pci INTA irq line.
-pub const PCI_INTA_IRQ: u8 = 3;
-
-/// the i8259 interrupt line of the pci INTB irq line.
-pub const PCI_INTB_IRQ: u8 = 4;
-
-/// the i8259 interrupt line of the pci INTC irq line.
-pub const PCI_INTC_IRQ: u8 = 5;
-
-/// the i8259 interrupt line of the pci INTD irq line.
-pub const PCI_INTD_IRQ: u8 = 6;
+pub struct I8259Irq;
+impl I8259Irq {
+    pub const TIMER: u8 = 0;
+    pub const INTA: u8 = 3;
+    pub const INTB: u8 = 4;
+    pub const INTC: u8 = 5;
+    pub const INTD: u8 = 6;
+}
 
 pub fn interrupts_set_enabled(enabled: bool) {
     let mut status = Cp0RegStatus::read();
@@ -238,6 +235,7 @@ extern "C" fn general_exception_handler() {
         let _ = Gt64120Regs::pci_0_interrupt_ack().read();
 
         // read the interrupt service register of the interrupt controller. this will tell us which interrupt we are currently servicing.
+        // also make sure to apply the mask to ignore interrupts that are masked out.
         let isr = PIIX4_I8259_CHAIN.read_isr();
 
         // the isr should only have 1 bit set, since we only service one interrupt at a time.
@@ -246,39 +244,20 @@ extern "C" fn general_exception_handler() {
         // calculate the irq number by calculating the index of the bit that is set in the ISR.
         let irq_number = isr.trailing_zeros() as u8;
 
-        let irq = I8259Irq::from_bits(irq_number);
-        match irq {
-            I8259Irq::Timer => {
+        match irq_number {
+            I8259Irq::TIMER => {
                 // TODO
             }
+            I8259Irq::INTA => {
+                crate::println!("got inta");
+            }
             _ => {
-                panic!("received unsupported i8259 irq: {:?}", irq)
+                panic!("received unsupported i8259 irq number: {}", irq_number)
             }
         }
 
         PIIX4_I8259_CHAIN.eoi(irq_number);
     }
-}
-
-#[bitpiece(4)]
-#[derive(Debug, Clone, Copy)]
-pub enum I8259Irq {
-    Timer = 0,
-    Keyboard = 1,
-    Reserved2 = 2,
-    Tty1 = 3,
-    Tty2 = 4,
-    Unused5 = 5,
-    FloppyDisk = 6,
-    ParallelPort = 7,
-    RealTimeClock = 8,
-    I2C = 9,
-    PciAB = 10,
-    PciCD = 11,
-    Mouse = 12,
-    Reserved13 = 13,
-    PrimaryIde = 14,
-    SecondaryIde = 15,
 }
 
 fn write_general_exception_vector_sub() {
@@ -556,29 +535,34 @@ fn piix4_init() {
         .pci_irq_routing()
         .write(Piix4PciIrqRouting::from_fields(Piix4PciIrqRoutingFields {
             inta: Piix4PciIrqRouteFields {
-                routing: BitPiece::from_bits(PCI_INTA_IRQ),
+                routing: BitPiece::from_bits(I8259Irq::INTA),
                 reserved4: BitPiece::zeroes(),
                 disable_routing: false,
             },
             intb: Piix4PciIrqRouteFields {
-                routing: BitPiece::from_bits(PCI_INTB_IRQ),
+                routing: BitPiece::from_bits(I8259Irq::INTB),
                 reserved4: BitPiece::zeroes(),
                 disable_routing: false,
             },
             intc: Piix4PciIrqRouteFields {
-                routing: BitPiece::from_bits(PCI_INTC_IRQ),
+                routing: BitPiece::from_bits(I8259Irq::INTC),
                 reserved4: BitPiece::zeroes(),
                 disable_routing: false,
             },
             intd: Piix4PciIrqRouteFields {
-                routing: BitPiece::from_bits(PCI_INTD_IRQ),
+                routing: BitPiece::from_bits(I8259Irq::INTD),
                 reserved4: BitPiece::zeroes(),
                 disable_routing: false,
             },
         }));
 
     // make all pci irq lines level triggered since pci irq lines are always level triggered.
-    for irq in [PCI_INTA_IRQ, PCI_INTB_IRQ, PCI_INTC_IRQ, PCI_INTD_IRQ] {
+    for irq in [
+        I8259Irq::INTA,
+        I8259Irq::INTB,
+        I8259Irq::INTC,
+        I8259Irq::INTD,
+    ] {
         piix4_set_irq_trigger_mode(irq, Piix4IrqTriggerMode::LevelTriggered);
     }
 }

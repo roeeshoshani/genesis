@@ -11,7 +11,7 @@ use volatile::{
 
 use crate::{
     hw::{
-        interrupts::PCI_INTB_IRQ,
+        interrupts::I8259Irq,
         pci::{PciBarKind, PciConfigRegCommand, PciConfigRegCommandFields, PciInterruptPin},
     },
     println,
@@ -98,7 +98,7 @@ pub fn nic_init() -> Option<Nic> {
     });
 
     // unmask the pci INTB irq so that we can receive interrupts from the nic
-    PIIX4_I8259_CHAIN.set_irq_mask(PCI_INTB_IRQ, false);
+    PIIX4_I8259_CHAIN.set_irq_mask(I8259Irq::INTB, false);
 
     // perform a 32-bit write to the RDP to configure the NIC to use dword io instead of word io.
     regs.rdp().write(0);
