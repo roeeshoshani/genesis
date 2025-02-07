@@ -8,7 +8,7 @@ use core::{
 
 use alloc::boxed::Box;
 use bitpiece::*;
-use hal::mem::{PhysAddr, VirtAddr};
+use hal::mem::VirtAddr;
 use static_assertions::const_assert_eq;
 use volatile::{
     access::{Access, ReadOnly, ReadWrite},
