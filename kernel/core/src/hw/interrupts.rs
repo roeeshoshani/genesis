@@ -537,7 +537,9 @@ fn i8259_init() {
 
 fn piix4_init() {
     // find the piix4 pci device
-    let piix4 = Piix4CorePciFunction::new(pci_find(PciId::PIIX4_CORE).unwrap());
+    let pci_function = pci_find(PciId::PIIX4_CORE).unwrap();
+    let mut pci_function = pci_function.0.lock();
+    let mut piix4 = Piix4CorePciFunction::new(&mut pci_function);
 
     // map pci irq lines to their desired i8259 irq lines.
     piix4

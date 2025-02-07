@@ -5,6 +5,7 @@ use core::{
 
 use crate::hw::interrupts::InterruptsDisabledGuard;
 
+#[derive(Debug)]
 pub struct IrqLock<T>(UnsafeCell<T>);
 impl<T> IrqLock<T> {
     pub const fn new(data: T) -> Self {

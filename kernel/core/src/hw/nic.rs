@@ -57,11 +57,12 @@ pub async fn nic_task() {
         println!("nic not found");
         return;
     };
-    nic_init_one(pci_function).await;
+    nic_init_one(pci_function.clone()).await;
 }
 
 pub async fn nic_init_one(pci_function: PciFunction) {
-    let bar = pci_function.bar(0).unwrap();
+    let mut pci_function_inner = pci_function.0.lock();
+    let bar = &mut pci_function_inner.bars()[0];
     let mapped_bar = bar.map_to_memory();
 
     // sanity
@@ -74,7 +75,7 @@ pub async fn nic_init_one(pci_function: PciFunction) {
     };
 
     // configure the pci command register of the device
-    pci_function.config_reg1().modify(|reg| {
+    pci_function_inner.config_reg1().modify(|reg| {
         reg.set_command(PciConfigRegCommand::from_fields(
             PciConfigRegCommandFields {
                 // enable io for this device so that we can access its io bar.
@@ -105,7 +106,7 @@ pub async fn nic_init_one(pci_function: PciFunction) {
     });
 
     // configure the nic's interrupt pin
-    pci_function.config_reg15().modify(|reg| {
+    pci_function_inner.config_reg15().modify(|reg| {
         reg.set_interrupt_pin(PciInterruptPin::new(Some(NIC_PCI_IRQ_NUM)));
     });
 

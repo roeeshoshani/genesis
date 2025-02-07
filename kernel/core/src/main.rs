@@ -10,6 +10,7 @@ use executor::EXECUTOR;
 use hw::{
     interrupts::{interrupts_disable, interrupts_enable, interrupts_init, wait_for_interrupt},
     nic::nic_task,
+    pci::pci_init,
     uart::{uart_init, uart_task},
 };
 use mem::page_alloc::page_allocator_init;
@@ -66,6 +67,9 @@ extern "C" fn _start() -> ! {
 
     // done initializing, enable interrupts
     interrupts_enable();
+
+    // initialize pci
+    pci_init();
 
     main_loop();
 }

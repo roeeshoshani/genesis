@@ -1,5 +1,9 @@
-use core::{marker::PhantomData, ops::Range};
+use core::{
+    marker::PhantomData,
+    ops::{Deref, DerefMut, Range},
+};
 
+use alloc::{sync::Arc, vec::Vec};
 use arrayvec::ArrayVec;
 use bitpiece::*;
 use hal::{
@@ -13,6 +17,7 @@ use crate::{
     sync::IrqLock,
     utils::{
         callback_chain::{CallbackChain, CallbackChainFn, CallbackChainNode},
+        write_once::WriteOnce,
         HexDisplay,
     },
 };
@@ -43,12 +48,12 @@ pub struct PciConfigAddr {
 }
 
 /// a physical memory bump allocator for allocating BAR addresses from a given physical memory region.
-pub struct PhysMemBarBumpAllocator {
+struct PhysMemBarBumpAllocator {
     region: PhysMemRegion,
     cur_addr: usize,
 }
 impl PhysMemBarBumpAllocator {
-    pub const fn new(region: PhysMemRegion, start_offset: usize) -> Self {
+    const fn new(region: PhysMemRegion, start_offset: usize) -> Self {
         Self {
             region,
             cur_addr: if start_offset == 0 {
@@ -60,7 +65,7 @@ impl PhysMemBarBumpAllocator {
             },
         }
     }
-    pub fn alloc(&mut self, size: usize) -> Result<PhysAddr, PhysMemBumpAllocatorError> {
+    fn alloc(&mut self, size: usize) -> Result<PhysAddr, PhysMemBarBumpAllocatorError> {
         assert!(size > 0);
 
         // align the allocated address.
@@ -80,7 +85,7 @@ impl PhysMemBarBumpAllocator {
             //
             // note that the allocation may fail even if we seem to have enough space to allocate, since allocating also
             // requires alignment, which may require extra memory space.
-            Err(PhysMemBumpAllocatorError {
+            Err(PhysMemBarBumpAllocatorError {
                 space_requested: HexDisplay(size),
                 space_left: HexDisplay(self.region.inclusive_end.0 - allocated_addr + 1),
             })
@@ -88,10 +93,10 @@ impl PhysMemBarBumpAllocator {
     }
 }
 
-/// an error while trying to allocate from the physical memory bump allocator.
+/// an error while trying to allocate from the BAR physical memory bump allocator.
 #[derive(Debug, Error)]
 #[error("requested allocation of {space_requested} bytes, but space left is only {space_left}")]
-pub struct PhysMemBumpAllocatorError {
+struct PhysMemBarBumpAllocatorError {
     pub space_requested: HexDisplay<usize>,
     pub space_left: HexDisplay<usize>,
 }
@@ -138,20 +143,20 @@ pub fn pci_config_write(addr: PciConfigAddr, value: u32) {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct PciBus {
+struct PciBusRaw {
     addr: PciConfigAddr,
 }
-impl PciBus {
-    pub fn new(bus_num: u8) -> Self {
+impl PciBusRaw {
+    fn new(bus_num: u8) -> Self {
         let mut addr = PciConfigAddr::zeroes();
         addr.set_enabled(true);
         addr.set_bus_num(bus_num);
         Self { addr }
     }
-    pub fn dev(&self, dev_num: u8) -> Option<PciDev> {
+    fn dev(&self, dev_num: u8) -> Option<PciDevRaw> {
         let mut dev_addr = self.addr;
         dev_addr.set_dev_num(PciDevNum::new(dev_num).unwrap());
-        let dev = PciDev { addr: dev_addr };
+        let dev = PciDevRaw { addr: dev_addr };
 
         if dev.exists() {
             Some(dev)
@@ -165,15 +170,15 @@ impl PciBus {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct PciDev {
+struct PciDevRaw {
     addr: PciConfigAddr,
 }
-impl PciDev {
-    pub fn function(&self, function_num: u8) -> Option<PciFunction> {
+impl PciDevRaw {
+    fn function(&self, function_num: u8) -> Option<PciFunctionRaw> {
         let mut function_addr = self.addr;
         function_addr.set_function_num(PciFunctionNum::new(function_num).unwrap());
 
-        let function = PciFunction {
+        let mut function = PciFunctionRaw {
             addr: function_addr,
         };
 
@@ -190,7 +195,7 @@ impl PciDev {
     }
 
     /// returns the first function of this device. all devices must have this function.
-    pub fn function0(&self) -> PciFunction {
+    fn function0(&self) -> PciFunctionRaw {
         self.function(0).unwrap()
     }
 
@@ -234,12 +239,12 @@ impl PciId {
     };
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct PciFunction {
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct PciFunctionRaw {
     addr: PciConfigAddr,
 }
-impl PciFunction {
-    pub fn id(&self) -> PciId {
+impl PciFunctionRaw {
+    pub fn id(&mut self) -> PciId {
         PciId {
             vendor_id: self.vendor_id(),
             device_id: self.device_id(),
@@ -247,7 +252,7 @@ impl PciFunction {
     }
 
     /// returns the range of configuration space register indexes which are BAR registers.
-    fn bar_regs_range(&self) -> Range<u8> {
+    fn bar_regs_range(&mut self) -> Range<u8> {
         match self.header_type().kind() {
             PciHeaderKind::General => 4..10,
             PciHeaderKind::PciToPciBridge => 4..6,
@@ -258,75 +263,62 @@ impl PciFunction {
         }
     }
 
-    pub fn bar(&self, index: u8) -> Option<PciBarReg> {
-        let bar_regs_range = self.bar_regs_range();
-
-        let reg_num = bar_regs_range.start + index;
-
-        if !bar_regs_range.contains(&reg_num) {
-            // the index is larger than the amount of BAR registers
-            return None;
-        }
-
-        PciBarReg::new(PciConfigRegTyped::new(self.config_reg(reg_num)))
-    }
-
-    pub fn bars(&self) -> impl Iterator<Item = PciBarReg> {
-        let pci_function = self.clone();
+    fn bars(&mut self) -> impl Iterator<Item = PciBar> {
+        let mut pci_function = Self { addr: self.addr };
         self.bar_regs_range().filter_map(move |reg_num| {
-            PciBarReg::new(PciConfigRegTyped::new(pci_function.config_reg(reg_num)))
+            PciBar::new(PciConfigRegTyped::new(pci_function.config_reg(reg_num)))
         })
     }
 
-    pub fn bars_array(&self) -> ArrayVec<PciBarReg, PCI_MAX_BARS> {
+    fn bars_array(&mut self) -> ArrayVec<PciBar, PCI_MAX_BARS> {
         self.bars().collect()
     }
 
-    pub fn config_reg(&self, reg_num: u8) -> PciConfigReg {
+    pub fn config_reg(&mut self, reg_num: u8) -> PciConfigReg {
         let mut reg_addr = self.addr;
         reg_addr.set_reg_num(PciRegNum::new(reg_num).unwrap());
 
         PciConfigReg { addr: reg_addr }
     }
 
-    pub fn config_reg0(&self) -> PciConfigRegTyped<PciConfigReg0> {
+    pub fn config_reg0(&mut self) -> PciConfigRegTyped<PciConfigReg0> {
         PciConfigRegTyped::new(self.config_reg(0))
     }
-    pub fn config_reg1(&self) -> PciConfigRegTyped<PciConfigReg1> {
+    pub fn config_reg1(&mut self) -> PciConfigRegTyped<PciConfigReg1> {
         PciConfigRegTyped::new(self.config_reg(1))
     }
-    pub fn config_reg2(&self) -> PciConfigRegTyped<PciConfigReg2> {
+    pub fn config_reg2(&mut self) -> PciConfigRegTyped<PciConfigReg2> {
         PciConfigRegTyped::new(self.config_reg(2))
     }
-    pub fn config_reg3(&self) -> PciConfigRegTyped<PciConfigReg3> {
+    pub fn config_reg3(&mut self) -> PciConfigRegTyped<PciConfigReg3> {
         PciConfigRegTyped::new(self.config_reg(3))
     }
-    pub fn config_reg15(&self) -> PciConfigRegTyped<PciConfigReg15> {
+    pub fn config_reg15(&mut self) -> PciConfigRegTyped<PciConfigReg15> {
         PciConfigRegTyped::new(self.config_reg(15))
     }
 
     /// checks if this pci function even exists.
-    fn exists(&self) -> bool {
+    fn exists(&mut self) -> bool {
         self.vendor_id() != 0xffff
     }
 
-    pub fn vendor_id(&self) -> u16 {
+    pub fn vendor_id(&mut self) -> u16 {
         self.config_reg0().read().vendor_id()
     }
 
-    pub fn device_id(&self) -> u16 {
+    pub fn device_id(&mut self) -> u16 {
         self.config_reg0().read().device_id()
     }
 
-    pub fn class_code(&self) -> u8 {
+    pub fn class_code(&mut self) -> u8 {
         self.config_reg2().read().class_code()
     }
 
-    pub fn subclass(&self) -> u8 {
+    pub fn subclass(&mut self) -> u8 {
         self.config_reg2().read().subclass()
     }
 
-    pub fn header_type(&self) -> PciHeaderType {
+    pub fn header_type(&mut self) -> PciHeaderType {
         self.config_reg3().read().header_type()
     }
 
@@ -339,23 +331,18 @@ impl PciFunction {
     pub fn function_num(&self) -> u8 {
         self.addr.function_num().get()
     }
-    pub fn map_all_bars_to_memory(&self) {
-        for bar in self.bars() {
-            bar.map_to_memory();
-        }
-    }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct PciBarReg {
+#[derive(Debug)]
+pub struct PciBar {
     reg: PciConfigRegTyped<PciBarRaw>,
     kind: PciBarKind,
 }
-impl PciBarReg {
+impl PciBar {
     /// creates a new pci BAR register from the given raw BAR register.
     /// if the BAR is not implemented by the pci device, returns `None`.
     pub fn new(reg: PciConfigRegTyped<PciBarRaw>) -> Option<Self> {
-        let result = Self {
+        let mut result = Self {
             reg,
             kind: reg.read().kind(),
         };
@@ -424,7 +411,7 @@ impl PciBarReg {
         self.reg.write(PciBarRaw::from_bits(modified_bits));
     }
     /// returns the size of the BAR.
-    pub fn size(&self) -> u32 {
+    pub fn size(&mut self) -> u32 {
         // TODO: what if someone modified the BAR while we are doing this?
 
         // save the original value before modifying the BAR
@@ -455,7 +442,7 @@ impl PciBarReg {
         self.address() != 0
     }
 
-    pub fn map_to_memory(&self) -> MappedBar {
+    pub fn map_to_memory(&mut self) -> MappedBar {
         // TODO: time of check time of use here. what if someone maps the BAR to memory between the time we check
         // and then time we actually map it?
         assert!(!self.is_mapped_to_memory());
@@ -702,7 +689,7 @@ pub struct PciConfigRegTyped<T> {
     phantom: PhantomData<T>,
 }
 impl<T: BitPiece<Bits = u32>> PciConfigRegTyped<T> {
-    pub fn new(reg: PciConfigReg) -> Self {
+    fn new(reg: PciConfigReg) -> Self {
         Self {
             reg,
             phantom: PhantomData,
@@ -711,7 +698,7 @@ impl<T: BitPiece<Bits = u32>> PciConfigRegTyped<T> {
     pub fn read(&self) -> T {
         T::from_bits(self.reg.read())
     }
-    pub fn write(&self, value: T) {
+    pub fn write(&mut self, value: T) {
         self.reg.write(value.to_bits());
     }
     pub fn modify<F>(&mut self, modify: F)
@@ -750,69 +737,6 @@ impl PciBridgeSubclass {
     pub const PCI_PCI_BRIDGE: u8 = 4;
 }
 
-struct PciScanner<F: FnMut(PciFunction)> {
-    callback: F,
-}
-impl<F: FnMut(PciFunction)> PciScanner<F> {
-    fn new(callback: F) -> Self {
-        Self { callback }
-    }
-
-    fn scan(&mut self) {
-        self.scan_bus(PciBus::new(0));
-    }
-
-    fn scan_bus(&mut self, bus: PciBus) {
-        for i in 0..PciDevNum::MAX.get() {
-            if let Some(dev) = bus.dev(i) {
-                self.scan_dev(dev);
-            }
-        }
-    }
-
-    fn scan_dev(&mut self, dev: PciDev) {
-        let function0 = dev.function0();
-
-        self.scan_function(function0);
-
-        if function0.header_type().is_multi_function() {
-            for i in 1..PciFunctionNum::MAX.get() {
-                if let Some(function) = dev.function(i) {
-                    self.scan_function(function);
-                }
-            }
-        }
-    }
-
-    fn scan_function(&mut self, function: PciFunction) {
-        (self.callback)(function);
-
-        if function.class_code() == PciClassCode::BRIDGE
-            && function.subclass() == PciBridgeSubclass::PCI_PCI_BRIDGE
-        {
-            todo!("pci to pci bridges are currently not supported");
-        }
-    }
-}
-
-pub fn pci_scan<F: FnMut(PciFunction)>(callback: F) {
-    let mut scanner = PciScanner::new(callback);
-    scanner.scan();
-}
-
-pub fn pci_find(id: PciId) -> Option<PciFunction> {
-    let mut result = None;
-    pci_scan(|pci_function| {
-        if pci_function.id() == id {
-            // there shouldn't be two pci functions with the same id
-            assert!(result.is_none());
-
-            result = Some(pci_function);
-        }
-    });
-    result
-}
-
 static PCI_INTERRUPT_CALLBACK_CHAINS: [CallbackChain; PCI_IRQ_LINES_AMOUNT] =
     [const { CallbackChain::new() }; PCI_IRQ_LINES_AMOUNT];
 
@@ -849,15 +773,16 @@ impl PciIrqNum {
     }
 }
 
-pub struct Piix4CorePciFunction {
-    function: PciFunction,
+pub struct Piix4CorePciFunction<'a> {
+    function: &'a mut PciFunctionInner,
 }
-impl Piix4CorePciFunction {
-    pub fn new(function: PciFunction) -> Self {
+impl<'a> Piix4CorePciFunction<'a> {
+    pub fn new(function: &'a mut PciFunctionInner) -> Self {
+        assert_eq!(function.id(), PciId::PIIX4_CORE);
         Self { function }
     }
-    pub fn pci_irq_routing(&self) -> PciConfigRegTyped<Piix4PciIrqRouting> {
-        PciConfigRegTyped::new(self.function.config_reg(24))
+    pub fn pci_irq_routing(&mut self) -> PciConfigRegTyped<Piix4PciIrqRouting> {
+        PciConfigRegTyped::new(self.function.raw.config_reg(24))
     }
 }
 
@@ -874,4 +799,119 @@ pub struct Piix4PciIrqRoute {
     pub routing: B4,
     pub reserved4: B3,
     pub disable_routing: bool,
+}
+
+pub struct PciBus {
+    _raw: PciBusRaw,
+    pub devs: Vec<PciDev>,
+}
+impl PciBus {
+    fn scan(raw: PciBusRaw) -> Self {
+        let mut bus = PciBus {
+            _raw: raw,
+            devs: Vec::new(),
+        };
+        for i in 0..PciDevNum::MAX.get() {
+            let Some(raw_dev) = raw.dev(i) else {
+                continue;
+            };
+            bus.devs.push(PciDev::scan(raw_dev));
+        }
+        bus
+    }
+}
+
+pub struct PciDev {
+    _raw: PciDevRaw,
+    pub functions: Vec<PciFunction>,
+}
+impl PciDev {
+    fn scan(raw: PciDevRaw) -> Self {
+        let mut dev = PciDev {
+            _raw: raw,
+            functions: Vec::new(),
+        };
+
+        let mut function0 = raw.function0();
+
+        if function0.header_type().is_multi_function() {
+            for i in 1..PciFunctionNum::MAX.get() {
+                if let Some(function) = raw.function(i) {
+                    dev.functions.push(PciFunction::scan(function));
+                }
+            }
+        }
+
+        dev.functions.push(PciFunction::scan(function0));
+
+        dev
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PciFunction(pub Arc<IrqLock<PciFunctionInner>>);
+impl PciFunction {
+    fn scan(mut raw: PciFunctionRaw) -> PciFunction {
+        let bars = raw.bars_array();
+        PciFunction(Arc::new(IrqLock::new(PciFunctionInner { raw, bars })))
+    }
+    fn id(&self) -> PciId {
+        let mut inner = self.0.lock();
+        inner.raw.id()
+    }
+}
+
+#[derive(Debug)]
+pub struct PciFunctionInner {
+    raw: PciFunctionRaw,
+    bars: ArrayVec<PciBar, PCI_MAX_BARS>,
+}
+impl PciFunctionInner {
+    pub fn raw(&mut self) -> &mut PciFunctionRaw {
+        &mut self.raw
+    }
+    pub fn bars(&mut self) -> &mut [PciBar] {
+        &mut self.bars
+    }
+}
+impl Deref for PciFunctionInner {
+    type Target = PciFunctionRaw;
+
+    fn deref(&self) -> &Self::Target {
+        &self.raw
+    }
+}
+impl DerefMut for PciFunctionInner {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.raw
+    }
+}
+
+pub struct PciHierarchy {
+    pub buses: Vec<PciBus>,
+}
+
+pub static PCI_HIERARCHY: WriteOnce<PciHierarchy> = WriteOnce::new();
+
+pub fn pci_find(id: PciId) -> Option<&'static PciFunction> {
+    let hierarchy = PCI_HIERARCHY.get();
+    for bus in &hierarchy.buses {
+        for dev in &bus.devs {
+            for function in &dev.functions {
+                if function.id() == id {
+                    return Some(function);
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn pci_init() {
+    let mut buses = Vec::new();
+
+    // we currently don't support pci to pci buses, so we only scan the root bus.
+    buses.push(PciBus::scan(PciBusRaw::new(0)));
+
+    PCI_HIERARCHY.write(PciHierarchy { buses });
 }

@@ -77,6 +77,8 @@ impl<T> WriteOnce<T> {
         }
     }
 }
+unsafe impl<T: Send> Send for WriteOnce<T> {}
+unsafe impl<T: Sync> Sync for WriteOnce<T> {}
 impl<T> Drop for WriteOnce<T> {
     fn drop(&mut self) {
         // we want acquire memory ordering here so that the reading of the value is strictly after this read, that is
