@@ -1,6 +1,7 @@
 use core::fmt::{Display, LowerHex};
 
 pub mod callback_chain;
+pub mod write_once;
 
 /// returns a bitmask of the given bit length
 #[allow(unused_macros)]
