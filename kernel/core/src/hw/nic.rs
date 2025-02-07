@@ -1,4 +1,10 @@
-use core::{marker::PhantomData, pin::Pin, ptr::NonNull};
+use core::{
+    future::Future,
+    marker::PhantomData,
+    pin::Pin,
+    ptr::NonNull,
+    task::{Context, Poll},
+};
 
 use alloc::boxed::Box;
 use bitpiece::*;
@@ -154,10 +160,14 @@ pub async fn nic_init_one(pci_function: PciFunction) {
         any_err: false,
     }));
 
-    let _nic = Nic {
-        init_block: Some(init_block),
+    let mut nic = Nic {
+        pci_function,
         rings,
+        regs,
+        init_block: Some(init_block),
     };
+
+    nic.wait_for_init_done().await;
 
     sleep_forever().await;
 }
@@ -260,12 +270,41 @@ impl NicRings {
 }
 
 pub struct Nic {
-    /// the nic's initialization block.
-    /// only used during early nic initialization.
-    init_block: Option<Pin<Box<InitBlock>>>,
+    /// the nic's pci function.
+    pci_function: PciFunction,
+
+    /// the nic's io bar registers.
+    regs: NicRegs,
 
     /// the nic's rx and tx rings.
     rings: NicRings,
+
+    /// the nic's initialization block.
+    /// only used during early nic initialization.
+    init_block: Option<Pin<Box<InitBlock>>>,
+}
+impl Nic {
+    fn wait_for_init_done(&mut self) -> NicWaitForInitDone {
+        NicWaitForInitDone { nic: self }
+    }
+}
+
+struct NicWaitForInitDone<'a> {
+    nic: &'a mut Nic,
+}
+impl<'a> Future for NicWaitForInitDone<'a> {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // try checking if the nic signaled to us that it is done initializing.
+        //
+        // the nic interrupts are level triggered so we do not need to start listening for interrupts before polling.
+        if self.nic.regs.csr0().read().initialization_done() {
+            Poll::Ready(())
+        } else {
+            todo!("listen for interrupts");
+        }
+    }
 }
 
 #[repr(transparent)]

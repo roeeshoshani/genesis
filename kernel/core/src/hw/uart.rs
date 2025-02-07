@@ -135,21 +135,15 @@ impl Future for UartReadByte {
     type Output = u8;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // listen to the uart byte available event, so that if there is no byte currently available,
-        // we will get a notification once a byte is available.
-        let mut listener = UART_BYTE_AVAILABLE_EVENT.listen(cx.waker().clone());
-
         // try sampling the hardware to see if we have a byte available
+        //
+        // the uart interrupt is level triggered so we do not need to start listening for interrupts before polling.
         match uart_try_read_byte() {
-            Some(byte) => {
-                // we already got the byte, so no need to listen for the event.
-                listener.stop_listening();
-
-                Poll::Ready(byte)
-            }
+            Some(byte) => Poll::Ready(byte),
             None => {
-                // no byte currently available, enable uart interrupts so that we will wake up once the
-                // byte is available.
+                // no byte currently available, listen to the uart byte avilable event and enable uart interrupts so that we will
+                // wake up once the byte is available.
+                UART_BYTE_AVAILABLE_EVENT.listen(cx.waker().clone());
                 uart_enable_interrupts();
 
                 Poll::Pending
