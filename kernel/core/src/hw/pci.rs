@@ -1,4 +1,4 @@
-use core::{marker::PhantomData, ops::Range, sync::atomic::AtomicUsize};
+use core::{marker::PhantomData, ops::Range};
 
 use arrayvec::ArrayVec;
 use bitpiece::*;
@@ -8,7 +8,9 @@ use hal::{
 };
 use thiserror_no_std::Error;
 
-use crate::{hw::interrupts::with_interrupts_disabled, println, utils::HexDisplay};
+use crate::{
+    hw::interrupts::with_interrupts_disabled, mem::align_up, sync::IrqSpinlock, utils::HexDisplay,
+};
 
 /// the maximum amount of BARs that a single function may have.
 const PCI_MAX_BARS: usize = 6;
@@ -30,32 +32,43 @@ pub struct PciConfigAddr {
     pub enabled: bool,
 }
 
-/// a physical memory bump allocator, which allocates from the given physical memory region.
-pub struct PhysMemBumpAllocator {
-    cur_addr: AtomicUsize,
-    inclusive_end_addr: PhysAddr,
+/// a physical memory bump allocator for allocating BAR addresses from a given physical memory region.
+pub struct PhysMemBarBumpAllocator {
+    region: PhysMemRegion,
+    cur_addr: usize,
 }
-impl PhysMemBumpAllocator {
+impl PhysMemBarBumpAllocator {
     pub const fn new(region: PhysMemRegion) -> Self {
         Self {
-            cur_addr: AtomicUsize::new(region.start.0),
-            inclusive_end_addr: region.inclusive_end,
+            region,
+            // note the +1 that is added to the original address here. this is done so that we don't allocate address 0,
+            // since that's an invalid BAR address.
+            cur_addr: region.start.0 + 0x1,
         }
     }
-    pub fn alloc(&self, size: usize) -> Result<PhysAddr, PhysMemBumpAllocatorError> {
+    pub fn alloc(&mut self, size: usize) -> Result<PhysAddr, PhysMemBumpAllocatorError> {
         assert!(size > 0);
 
-        let allocated_addr = self
-            .cur_addr
-            .fetch_add(size, core::sync::atomic::Ordering::Relaxed);
+        // align the allocated address.
+        // the alignment of a bar is the same as its size.
+        let allocated_addr = align_up(self.cur_addr, size);
 
         let inclusive_end_addr = allocated_addr + (size - 1);
-        if inclusive_end_addr <= self.inclusive_end_addr.0 {
+
+        if inclusive_end_addr <= self.region.inclusive_end.0 {
+            // update the allocation cursor
+            self.cur_addr = inclusive_end_addr + 1;
+
+            // return the allocated address
             Ok(PhysAddr(allocated_addr))
         } else {
+            // not enough space to allocate, return a corresponding error.
+            //
+            // note that the allocation may fail even if we seem to have enough space to allocate, since allocating also
+            // requires alignment, which may require extra memory space.
             Err(PhysMemBumpAllocatorError {
                 space_requested: HexDisplay(size),
-                space_left: HexDisplay(self.inclusive_end_addr.0 - allocated_addr + 1),
+                space_left: HexDisplay(self.region.inclusive_end.0 - allocated_addr + 1),
             })
         }
     }
@@ -69,8 +82,10 @@ pub struct PhysMemBumpAllocatorError {
     pub space_left: HexDisplay<usize>,
 }
 
-static PCI_IO_SPACE_ALLOCATOR: PhysMemBumpAllocator = PhysMemBumpAllocator::new(PCI_0_IO);
-static PCI_MEM_SPACE_ALLOCATOR: PhysMemBumpAllocator = PhysMemBumpAllocator::new(PCI_0_MEM);
+static PCI_IO_SPACE_ALLOCATOR: IrqSpinlock<PhysMemBarBumpAllocator> =
+    IrqSpinlock::new(PhysMemBarBumpAllocator::new(PCI_0_IO));
+static PCI_MEM_SPACE_ALLOCATOR: IrqSpinlock<PhysMemBarBumpAllocator> =
+    IrqSpinlock::new(PhysMemBarBumpAllocator::new(PCI_0_MEM));
 
 pub fn pci_config_read(addr: PciConfigAddr) -> u32 {
     // do this with interrupts disabled to prevent an interrupt handler from overwriting the pci config register while
@@ -411,10 +426,10 @@ impl PciBarReg {
         // and then time we actually map it?
         assert!(!self.is_mapped_to_memory());
 
-        // allocate an address for the BAR and set its base address
-        let allocator = match self.kind() {
-            PciBarKind::Mem => &PCI_MEM_SPACE_ALLOCATOR,
-            PciBarKind::Io => &PCI_IO_SPACE_ALLOCATOR,
+        // choose the correct allocator for allocating mmio for the BAR
+        let mut allocator = match self.kind() {
+            PciBarKind::Mem => PCI_MEM_SPACE_ALLOCATOR.lock(),
+            PciBarKind::Io => PCI_IO_SPACE_ALLOCATOR.lock(),
         };
 
         let size = self.size() as usize;
@@ -423,7 +438,9 @@ impl PciBarReg {
             .alloc(size)
             .expect("failed to allocate address space for PCI BAR");
 
-        self.set_address(base_addr.0 as u32);
+        // set the address of the bar to the offset from the start of the memory region.
+        let offset = base_addr.0 - allocator.region.start.0;
+        self.set_address(offset as u32);
 
         MappedBar {
             addr: base_addr,
