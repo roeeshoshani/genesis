@@ -2,10 +2,7 @@ use core::{marker::PhantomData, pin::Pin, ptr::NonNull};
 
 use alloc::boxed::Box;
 use bitpiece::*;
-use hal::{
-    mem::VirtAddr,
-    sys::{Cp0Reg, Cp0RegStatus},
-};
+use hal::mem::VirtAddr;
 use static_assertions::const_assert_eq;
 use volatile::{
     access::{Access, ReadOnly, ReadWrite},
@@ -18,7 +15,7 @@ use crate::{
 };
 
 use super::{
-    interrupts::{with_interrupts_disabled, I8259Chain, PCI_INTA_IRQ, PIIX4_I8259_CHAIN},
+    interrupts::{with_interrupts_disabled, PCI_INTA_IRQ, PIIX4_I8259_CHAIN},
     pci::{pci_find, PciId},
 };
 
@@ -46,10 +43,22 @@ pub fn nic_init() -> Option<Nic> {
         println!("nic not found");
         return None;
     };
+    let bar = dev.bar(0).unwrap();
+    let mapped_bar = bar.map_to_memory();
+
+    // sanity
+    assert_eq!(bar.kind(), PciBarKind::Io);
+    assert_eq!(mapped_bar.size, NIC_BAR_SIZE);
+
+    let mut regs = NicRegs {
+        addr: mapped_bar.addr.kseg_uncachable_addr().unwrap(),
+        size: mapped_bar.size,
+    };
 
     // configure the pci command register of the device
     dev.config_reg1().modify(|reg| {
         // enable io for this device so that we can access its io bar.
+        // NOTE: this should only be done after we are finished mapping all bars.
         reg.command_mut().set_io_enable(true);
 
         // enable bus master support so that the device can generate interrupts and dma cycles.
@@ -63,18 +72,6 @@ pub fn nic_init() -> Option<Nic> {
 
     // unmask the pci INTA irq so that we can receive interrupts from the nic
     PIIX4_I8259_CHAIN.set_irq_mask(PCI_INTA_IRQ, false);
-
-    let bar = dev.bar(0).unwrap();
-    let mapped_bar = bar.map_to_memory();
-
-    // sanity
-    assert_eq!(bar.kind(), PciBarKind::Io);
-    assert_eq!(mapped_bar.size, NIC_BAR_SIZE);
-
-    let mut regs = NicRegs {
-        addr: mapped_bar.addr.kseg_cachable_addr().unwrap(),
-        size: mapped_bar.size,
-    };
 
     // perform a 32-bit write to the RDP to configure the NIC to use dword io instead of word io.
     regs.rdp().write(0);
