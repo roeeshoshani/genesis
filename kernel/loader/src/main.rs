@@ -38,9 +38,15 @@ global_asm!(
     // at 0xbfc00010 we there is a hole in the flash mmmio, which instead of decoding to flash, decodes to the revision register.
     // we don't want our code to collide with this hole, so we skip it.
     "b after_hole",
+    // this is address 0xbfc00004, we skip this to avoid the hole of the revision register.
     "nop",
+    // this is address 0xbfc00008, we skip this to avoid the hole of the revision register.
     "nop",
+    // this is address 0xbfc0000c, we skip this to avoid the hole of the revision register.
     "nop",
+    // this is address 0xbfc00010. this is where the hole for the revision register is, which we want to skip.
+    "nop",
+    // this is address 0xbfc00014, after the hole of the revision register.
     "after_hole:",
     // set up the stack pointer to point to the end of the stack.
     "li $sp, {STACK_END_VIRT_ADDR}",
