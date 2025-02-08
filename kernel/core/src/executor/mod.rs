@@ -50,7 +50,6 @@ fn poll_task_retain(task: &mut Arc<Task>) -> bool {
 }
 
 pub struct Executor {
-    // the pinning of the task here is so that we can pass a pointer to the task as the data pointer of the waker.
     tasks: Vec<Arc<Task>>,
 }
 impl Executor {
