@@ -14,7 +14,7 @@ use thiserror_no_std::Error;
 
 use crate::{
     mem::align_up,
-    sync::IrqLock,
+    sync::{IrqLock, NonIrqLock},
     utils::{
         callback_chain::{CallbackChain, CallbackChainFn, CallbackChainNode},
         write_once::WriteOnce,
@@ -104,10 +104,17 @@ struct PhysMemBarBumpAllocatorError {
 /// the size of the address range of the memory mapped piix4 io registers at the start of the PCI I/O 0 address space.
 const PIIX4_IO_SPACE_SIZE: usize = 0x1000;
 
-static PCI_IO_SPACE_ALLOCATOR: IrqLock<PhysMemBarBumpAllocator> =
-    IrqLock::new(PhysMemBarBumpAllocator::new(PCI_0_IO, PIIX4_IO_SPACE_SIZE));
-static PCI_MEM_SPACE_ALLOCATOR: IrqLock<PhysMemBarBumpAllocator> =
-    IrqLock::new(PhysMemBarBumpAllocator::new(PCI_0_MEM, 0));
+/// a bump allocator for pci io space addresses.
+///
+/// we use a non-irq lock since this is only used during initialization when mapping bars, and it shouldn't be used in interrupt context.
+static PCI_IO_SPACE_ALLOCATOR: NonIrqLock<PhysMemBarBumpAllocator> =
+    NonIrqLock::new(PhysMemBarBumpAllocator::new(PCI_0_IO, PIIX4_IO_SPACE_SIZE));
+
+/// a bump allocator for pci memory space addresses.
+///
+/// we use a non-irq lock since this is only used during initialization when mapping bars, and it shouldn't be used in interrupt context.
+static PCI_MEM_SPACE_ALLOCATOR: NonIrqLock<PhysMemBarBumpAllocator> =
+    NonIrqLock::new(PhysMemBarBumpAllocator::new(PCI_0_MEM, 0));
 
 /// a lock for protecting access to pci configuration space.
 ///
@@ -115,6 +122,9 @@ static PCI_MEM_SPACE_ALLOCATOR: IrqLock<PhysMemBarBumpAllocator> =
 /// you must first write the address to one register, and then you can read/write the data from another register.
 /// and, without using a lock, someone might overwrite the address register after you wrote to it, thus causing your write
 /// to write to another address than the one you intended.
+///
+/// we use an irq lock since this can also be accessed from interrupt contexts to communicate with pci devices when an interrupt
+/// is received.
 static PCI_CONFIG_SPACE_LOCK: IrqLock<PciConfigSpace> = IrqLock::new(PciConfigSpace);
 
 struct PciConfigSpace;
@@ -849,7 +859,12 @@ impl PciDev {
 }
 
 #[derive(Debug, Clone)]
-pub struct PciFunction(pub Arc<IrqLock<PciFunctionInner>>);
+pub struct PciFunction(
+    /// the inner information of the pci function, protected by a lock.
+    ///
+    /// we use an irq lock since this might also be accessed from interrupts contexts.
+    pub Arc<IrqLock<PciFunctionInner>>,
+);
 impl PciFunction {
     fn scan(mut raw: PciFunctionRaw) -> PciFunction {
         let bars = raw.bars_array();

@@ -6,6 +6,9 @@ use crate::sync::{IrqLock, IrqLockGuard};
 
 #[derive(Debug)]
 pub struct AsyncEvent {
+    /// a list of wakers to wake once the event is triggered.
+    ///
+    /// we use an irq lock since we want to be able to wake the tasks up from irq context.
     wakers: IrqLock<Vec<Waker>>,
 }
 impl AsyncEvent {
