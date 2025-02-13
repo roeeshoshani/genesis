@@ -9,11 +9,15 @@ use core::{
 
 use alloc::{boxed::Box, sync::Arc, task::Wake, vec::Vec};
 
-use crate::sync::IrqLock;
+use crate::sync::{IrqLock, NonIrqLock};
 
 pub struct Task {
     should_be_polled: AtomicBool,
-    future: IrqLock<Pin<Box<dyn Future<Output = ()> + 'static + Send>>>,
+
+    /// the underlying future of this task.
+    ///
+    /// we use a non irq lock since futures can only be polled in task context by definition.
+    future: NonIrqLock<Pin<Box<dyn Future<Output = ()> + 'static + Send>>>,
 }
 impl Wake for Task {
     fn wake(self: Arc<Self>) {
@@ -67,7 +71,7 @@ impl Executor {
     {
         self.tasks.push(Arc::new(Task {
             should_be_polled: AtomicBool::new(true),
-            future: IrqLock::new(Box::pin(task)),
+            future: NonIrqLock::new(Box::pin(task)),
         }));
     }
 

@@ -55,6 +55,9 @@ impl<'a> AsyncEventListenerHandle<'a> {
 
 #[derive(Debug)]
 pub struct AsyncEventQueued {
+    /// a queue of wakers waiting for the lock to be unlocked.
+    ///
+    /// we use an irq lock since we want to be able to wake the tasks up from irq context.
     wakers: IrqLock<VecDeque<Waker>>,
 }
 impl AsyncEventQueued {
