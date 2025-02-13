@@ -84,7 +84,11 @@ impl Executor {
     }
 }
 
-pub static EXECUTOR: IrqLock<Executor> = IrqLock::new(Executor::new());
+/// the global executor.
+///
+/// it is protected using a non irq lock because we must be able to run tasks with interrupts enabled.
+/// this means that it can't be accessed from interrupt context, which means that we can't spawn tasks from interrupt context.
+pub static EXECUTOR: NonIrqLock<Executor> = NonIrqLock::new(Executor::new());
 
 pub struct SleepForever;
 pub async fn sleep_forever() -> SleepForever {
