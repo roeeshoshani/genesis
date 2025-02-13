@@ -6,8 +6,57 @@ use core::{
     task::Poll,
 };
 
-use crate::{executor::async_event::AsyncEventQueued, hw::interrupts::InterruptsDisabledGuard};
+use crate::{
+    executor::async_event::AsyncEventQueued,
+    hw::interrupts::{is_in_interrupt, InterruptsDisabledGuard},
+};
 
+/// a spinlock which can't be accessed in irq context, only in task context. this means that we don't need to disable interrupts
+/// when locking it.
+pub struct NonIrqLock<T>(spin::Mutex<T>);
+impl<T> NonIrqLock<T> {
+    pub const fn new(data: T) -> Self {
+        Self(spin::Mutex::new(data))
+    }
+    pub fn lock(&self) -> spin::MutexGuard<T> {
+        assert!(!is_in_interrupt());
+        self.0.lock()
+    }
+}
+
+pub struct NonIrqLockGuard<'a, T: ?Sized + 'a> {
+    // NOTE: the order of these fields is really important. it dictates the order in which they will get dropped.
+    // we first want to drop the spinlock guard to unlock the lock, and only then we want to re-enable interrupts.
+    spinlock_guard: spin::mutex::MutexGuard<'a, T>,
+    _interrupts_guard: InterruptsDisabledGuard,
+}
+
+impl<'a, T: ?Sized + core::fmt::Debug> core::fmt::Debug for NonIrqLockGuard<'a, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<'a, T: ?Sized + core::fmt::Display> core::fmt::Display for NonIrqLockGuard<'a, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        core::fmt::Display::fmt(&**self, f)
+    }
+}
+
+impl<'a, T: ?Sized> Deref for NonIrqLockGuard<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.spinlock_guard
+    }
+}
+
+impl<'a, T: ?Sized> DerefMut for NonIrqLockGuard<'a, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.spinlock_guard
+    }
+}
+
+/// an async mutex which can only be accessed in task contexts, and not in irq contexts.
 #[derive(Debug)]
 pub struct Mutex<T> {
     data: UnsafeCell<T>,
@@ -43,6 +92,7 @@ impl<'a, T> Future for MutexLock<'a, T> {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
+        assert!(!is_in_interrupt());
         let listener_handle = if !self.already_registered_to_unlock_event {
             Some(self.mutex.unlock_event.listen(cx.waker().clone()))
         } else {
@@ -139,8 +189,6 @@ impl<T> IrqLock<T> {
         }
     }
 }
-unsafe impl<T> Send for IrqLock<T> {}
-unsafe impl<T> Sync for IrqLock<T> {}
 
 pub struct IrqLockGuard<'a, T: ?Sized + 'a> {
     // NOTE: the order of these fields is really important. it dictates the order in which they will get dropped.

@@ -497,7 +497,7 @@ pub enum OperatingMode {
 
 /// the exception level of the cpu.
 #[bitpiece(1)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CpuExceptionLevel {
     NormalLevel = 0,
     ExceptionLevel = 1,

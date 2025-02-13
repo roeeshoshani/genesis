@@ -31,6 +31,10 @@ pub fn interrupts_set_enabled(enabled: bool) {
     Cp0RegStatus::write(status);
 }
 
+pub fn is_in_interrupt() -> bool {
+    Cp0RegStatus::read().exception_level() == CpuExceptionLevel::ExceptionLevel
+}
+
 #[derive(Clone)]
 pub struct InterruptsPrevState {
     pub were_enabled: bool,
