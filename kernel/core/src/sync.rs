@@ -1,6 +1,7 @@
 use core::{
     cell::UnsafeCell,
     future::Future,
+    marker::PhantomData,
     ops::{Deref, DerefMut},
     sync::atomic::AtomicBool,
     task::Poll,
@@ -9,26 +10,38 @@ use core::{
 use crate::{
     executor::async_event::AsyncEventQueued,
     hw::interrupts::{is_in_interrupt, InterruptsDisabledGuard},
+    utils::{PhantomUnsend, PhantomUnsendUnsync, PhantomUnsync},
 };
 
 /// a spinlock which can't be accessed in irq context, only in task context. this means that we don't need to disable interrupts
 /// when locking it.
-pub struct NonIrqLock<T>(spin::Mutex<T>);
+pub struct NonIrqLock<T> {
+    data: spin::Mutex<T>,
+}
 impl<T> NonIrqLock<T> {
     pub const fn new(data: T) -> Self {
-        Self(spin::Mutex::new(data))
+        Self {
+            data: spin::Mutex::new(data),
+        }
     }
-    pub fn lock(&self) -> spin::MutexGuard<T> {
+    pub fn lock(&self) -> NonIrqLockGuard<T> {
         assert!(!is_in_interrupt());
-        self.0.lock()
+
+        NonIrqLockGuard {
+            spinlock_guard: self.data.lock(),
+            phantom: PhantomUnsendUnsync::new(),
+        }
     }
 }
 
 pub struct NonIrqLockGuard<'a, T: ?Sized + 'a> {
-    // NOTE: the order of these fields is really important. it dictates the order in which they will get dropped.
-    // we first want to drop the spinlock guard to unlock the lock, and only then we want to re-enable interrupts.
     spinlock_guard: spin::mutex::MutexGuard<'a, T>,
-    _interrupts_guard: InterruptsDisabledGuard,
+
+    /// mark the type as not `Send` and not `Sync` so that it cannot be held across an await point.
+    ///
+    /// this will help prevent bugs where we try to wait for a blocking operation while holding a spinlock,
+    /// which may cause other tasks to busy poll while we are sleeping.
+    phantom: PhantomUnsendUnsync,
 }
 
 impl<'a, T: ?Sized + core::fmt::Debug> core::fmt::Debug for NonIrqLockGuard<'a, T> {
@@ -186,6 +199,7 @@ impl<T> IrqLock<T> {
             // the spinlock.
             _interrupts_guard: InterruptsDisabledGuard::new(),
             spinlock_guard: self.0.lock(),
+            phantom: PhantomUnsendUnsync::new(),
         }
     }
 }
@@ -195,6 +209,12 @@ pub struct IrqLockGuard<'a, T: ?Sized + 'a> {
     // we first want to drop the spinlock guard to unlock the lock, and only then we want to re-enable interrupts.
     spinlock_guard: spin::mutex::MutexGuard<'a, T>,
     _interrupts_guard: InterruptsDisabledGuard,
+
+    /// mark the type as not `Send` and not `Sync` so that it cannot be held across an await point.
+    ///
+    /// this will help prevent bugs where we try to wait for a blocking operation while holding a spinlock,
+    /// which may cause other tasks to busy poll while we are sleeping.
+    phantom: PhantomUnsendUnsync,
 }
 
 impl<'a, T: ?Sized + core::fmt::Debug> core::fmt::Debug for IrqLockGuard<'a, T> {

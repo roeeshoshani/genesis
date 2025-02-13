@@ -1,4 +1,7 @@
-use core::fmt::{Display, LowerHex};
+use core::{
+    fmt::{Display, LowerHex},
+    marker::PhantomData,
+};
 
 pub mod callback_chain;
 pub mod write_once;
@@ -38,5 +41,43 @@ impl<T: LowerHex> LowerHex for HexDisplay<T> {
 impl<T: LowerHex> core::fmt::Debug for HexDisplay<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "0x{:x}", self.0)
+    }
+}
+
+/// a phantom type which is not `Send`.
+pub struct PhantomUnsend {
+    phantom: PhantomData<*const ()>,
+}
+impl PhantomUnsend {
+    pub const fn new() -> Self {
+        Self {
+            phantom: PhantomData,
+        }
+    }
+}
+unsafe impl Sync for PhantomUnsend {}
+
+/// a phantom type which is not `Sync`.
+pub struct PhantomUnsync {
+    phantom: PhantomData<*const ()>,
+}
+impl PhantomUnsync {
+    pub const fn new() -> Self {
+        Self {
+            phantom: PhantomData,
+        }
+    }
+}
+unsafe impl Send for PhantomUnsend {}
+
+/// a phantom type which is not `Send` and also not `Sync`.
+pub struct PhantomUnsendUnsync {
+    phantom: PhantomData<*const ()>,
+}
+impl PhantomUnsendUnsync {
+    pub const fn new() -> Self {
+        Self {
+            phantom: PhantomData,
+        }
     }
 }
