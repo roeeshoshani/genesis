@@ -1,7 +1,6 @@
 use core::{
     cell::UnsafeCell,
     future::Future,
-    marker::PhantomData,
     ops::{Deref, DerefMut},
     sync::atomic::AtomicBool,
     task::Poll,
@@ -10,11 +9,12 @@ use core::{
 use crate::{
     executor::async_event::AsyncEventQueued,
     hw::interrupts::{is_in_interrupt, InterruptsDisabledGuard},
-    utils::{PhantomUnsend, PhantomUnsendUnsync, PhantomUnsync},
+    utils::PhantomUnsendUnsync,
 };
 
 /// a spinlock which can't be accessed in irq context, only in task context. this means that we don't need to disable interrupts
 /// when locking it.
+#[derive(Debug)]
 pub struct NonIrqLock<T> {
     data: spin::Mutex<T>,
 }

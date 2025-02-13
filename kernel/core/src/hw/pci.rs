@@ -14,7 +14,7 @@ use thiserror_no_std::Error;
 
 use crate::{
     mem::align_up,
-    sync::{IrqLock, NonIrqLock},
+    sync::NonIrqLock,
     utils::{
         callback_chain::{CallbackChain, CallbackChainFn, CallbackChainNode},
         write_once::WriteOnce,
@@ -861,13 +861,13 @@ impl PciDev {
 pub struct PciFunction(
     /// the inner information of the pci function, protected by a lock.
     ///
-    /// we use an irq lock since this might also be accessed from interrupts contexts.
-    pub Arc<IrqLock<PciFunctionInner>>,
+    /// we use a non-irq lock since that can not be accessed from interrupt context, only from task context.
+    pub Arc<NonIrqLock<PciFunctionInner>>,
 );
 impl PciFunction {
     fn scan(mut raw: PciFunctionRaw) -> PciFunction {
         let bars = raw.bars_array();
-        PciFunction(Arc::new(IrqLock::new(PciFunctionInner { raw, bars })))
+        PciFunction(Arc::new(NonIrqLock::new(PciFunctionInner { raw, bars })))
     }
     fn id(&self) -> PciId {
         let mut inner = self.0.lock();

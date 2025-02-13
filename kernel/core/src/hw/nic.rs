@@ -63,7 +63,7 @@ pub async fn nic_task() {
     nic_init_one(pci_function.clone()).await;
 }
 
-pub async fn nic_init_one(pci_function: PciFunction) {
+fn nic_init_begin(pci_function: PciFunction) -> Nic {
     let mut pci_function_inner = pci_function.0.lock();
     let bar = &mut pci_function_inner.bars()[0];
     let mapped_bar = bar.map_to_memory();
@@ -175,13 +175,17 @@ pub async fn nic_init_one(pci_function: PciFunction) {
 
     drop(pci_function_inner);
 
-    let nic = Nic {
+    Nic {
         pci_function,
         rings,
         regs,
         init_block: Some(init_block),
         interrupt_handler_callback_node,
-    };
+    }
+}
+
+pub async fn nic_init_one(pci_function: PciFunction) {
+    let nic = nic_init_begin(pci_function);
 
     nic.wait_for_init_done().await;
 
