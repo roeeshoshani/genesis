@@ -31,6 +31,10 @@ pub fn interrupts_set_enabled(enabled: bool) {
     Cp0RegStatus::write(status);
 }
 
+pub fn are_interrupts_enabled() -> bool {
+    Cp0RegStatus::read().are_interrupts_enabled()
+}
+
 pub fn is_in_interrupt() -> bool {
     Cp0RegStatus::read().exception_level() == CpuExceptionLevel::ExceptionLevel
 }
