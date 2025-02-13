@@ -17,11 +17,15 @@ pub struct Task {
 }
 impl Wake for Task {
     fn wake(self: Arc<Self>) {
-        self.should_be_polled.store(true, Ordering::Relaxed);
+        // we use release ordering because we want the task, once it wakes up, to see all preperations that were made before it
+        // was woken up.
+        self.should_be_polled.store(true, Ordering::Release);
     }
 
     fn wake_by_ref(self: &Arc<Self>) {
-        self.should_be_polled.store(true, Ordering::Relaxed);
+        // we use release ordering because we want the task, once it wakes up, to see all preperations that were made before it
+        // was woken up.
+        self.should_be_polled.store(true, Ordering::Release);
     }
 }
 

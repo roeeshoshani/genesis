@@ -112,10 +112,12 @@ impl<'a, T> DerefMut for MutexGuard<'a, T> {
 impl<'a, T> Drop for MutexGuard<'a, T> {
     fn drop(&mut self) {
         // we are finished holding the lock, mark the lock as unlocked.
-        // we want acquire ordering here to ensure that the triggering of the event happens after setting this to false.
+        //
+        // we use relaxed ordering here since the triggering of the event provides release semantics with the woken task,
+        // which guarantees that the task will see this store before it is woken up.
         self.mutex
             .is_locked
-            .store(false, core::sync::atomic::Ordering::Acquire);
+            .store(false, core::sync::atomic::Ordering::Relaxed);
 
         // wake up the next listener in the queue of tasks waiting for us to unlock
         self.mutex.unlock_event.trigger_one();
@@ -123,19 +125,17 @@ impl<'a, T> Drop for MutexGuard<'a, T> {
 }
 
 #[derive(Debug)]
-pub struct IrqLock<T>(UnsafeCell<T>);
+pub struct IrqLock<T>(spin::Mutex<T>);
 impl<T> IrqLock<T> {
     pub const fn new(data: T) -> Self {
-        Self(UnsafeCell::new(data))
+        Self(spin::Mutex::new(data))
     }
     pub fn lock(&self) -> IrqLockGuard<T> {
         IrqLockGuard {
+            // NOTE: the order of the fields here is important. we first want to disable interrupts, and only then to lock
+            // the spinlock.
             _interrupts_guard: InterruptsDisabledGuard::new(),
-            data: unsafe {
-                // SAFETY: disabling interrupts, combined with the fact that we currently don't support multiple cores,
-                // guarantees that we have exclusive access, as long as interrupts are disabled.
-                &mut *self.0.get()
-            },
+            spinlock_guard: self.0.lock(),
         }
     }
 }
@@ -143,7 +143,9 @@ unsafe impl<T> Send for IrqLock<T> {}
 unsafe impl<T> Sync for IrqLock<T> {}
 
 pub struct IrqLockGuard<'a, T: ?Sized + 'a> {
-    data: &'a mut T,
+    // NOTE: the order of these fields is really important. it dictates the order in which they will get dropped.
+    // we first want to drop the spinlock guard to unlock the lock, and only then we want to re-enable interrupts.
+    spinlock_guard: spin::mutex::MutexGuard<'a, T>,
     _interrupts_guard: InterruptsDisabledGuard,
 }
 
@@ -162,12 +164,12 @@ impl<'a, T: ?Sized + core::fmt::Display> core::fmt::Display for IrqLockGuard<'a,
 impl<'a, T: ?Sized> Deref for IrqLockGuard<'a, T> {
     type Target = T;
     fn deref(&self) -> &T {
-        &self.data
+        &self.spinlock_guard
     }
 }
 
 impl<'a, T: ?Sized> DerefMut for IrqLockGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
-        &mut self.data
+        &mut self.spinlock_guard
     }
 }

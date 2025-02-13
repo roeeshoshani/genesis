@@ -29,6 +29,8 @@ impl AsyncEvent {
     }
 
     /// triggers the event, waking up all wakers that have registered.
+    ///
+    /// this provides an atomic release semantic with the woken tasks.
     pub fn trigger(&self) {
         let mut wakers = self.wakers.lock();
         for waker in wakers.drain(..) {
@@ -73,6 +75,8 @@ impl AsyncEventQueued {
     }
 
     /// triggers the event once, waking up the next waker in the queue.
+    ///
+    /// this provides an atomic release semantic with the woken task.
     pub fn trigger_one(&self) {
         let mut wakers = self.wakers.lock();
         for waker in wakers.drain(..) {

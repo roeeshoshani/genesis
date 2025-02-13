@@ -173,6 +173,8 @@ pub async fn nic_init_one(pci_function: PciFunction) {
         }
     });
 
+    drop(pci_function_inner);
+
     let nic = Nic {
         pci_function,
         rings,
