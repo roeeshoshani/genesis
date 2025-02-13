@@ -123,9 +123,8 @@ static PCI_MEM_SPACE_ALLOCATOR: NonIrqLock<PhysMemBarBumpAllocator> =
 /// and, without using a lock, someone might overwrite the address register after you wrote to it, thus causing your write
 /// to write to another address than the one you intended.
 ///
-/// we use an irq lock since this can also be accessed from interrupt contexts to communicate with pci devices when an interrupt
-/// is received.
-static PCI_CONFIG_SPACE_LOCK: IrqLock<PciConfigSpace> = IrqLock::new(PciConfigSpace);
+/// we use a non-irq lock since this can not be accessed in interrupt context, only in task context.
+static PCI_CONFIG_SPACE_LOCK: NonIrqLock<PciConfigSpace> = NonIrqLock::new(PciConfigSpace);
 
 struct PciConfigSpace;
 impl PciConfigSpace {
