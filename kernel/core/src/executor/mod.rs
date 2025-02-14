@@ -33,7 +33,7 @@ impl Wake for Task {
     }
 }
 
-fn poll_task_retain(task: &mut Arc<Task>) -> bool {
+fn poll_task_retain(task: &mut Arc<Task>, did_anything: &mut bool) -> bool {
     if !task.should_be_polled.swap(false, Ordering::Relaxed) {
         // task is not ready to be polled yet, keep it in the list
         return true;
@@ -45,6 +45,10 @@ fn poll_task_retain(task: &mut Arc<Task>) -> bool {
     let mut future = task.future.lock();
 
     let poll_res = Future::poll(future.as_mut(), &mut context);
+
+    // we polled a task, which counts as progress
+    *did_anything = true;
+
     match poll_res {
         Poll::Ready(()) => {
             // task has finished executing. don't keep it in the list
@@ -76,7 +80,14 @@ impl Executor {
     }
 
     pub fn poll(&mut self) {
-        self.tasks.retain_mut(poll_task_retain);
+        loop {
+            let mut did_anything = false;
+            self.tasks
+                .retain_mut(|task| poll_task_retain(task, &mut did_anything));
+            if !did_anything {
+                break;
+            }
+        }
     }
 
     pub fn is_empty(&self) -> bool {
