@@ -65,6 +65,11 @@ pub struct CallbackChainNode<'a> {
     callback: Pin<Box<Callback>>,
     phantom: PhantomData<&'a ()>,
 }
+impl<'a> core::fmt::Debug for CallbackChainNode<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "()")
+    }
+}
 unsafe impl<'a> Send for CallbackChainNode<'a> {}
 unsafe impl<'a> Sync for CallbackChainNode<'a> {}
 impl<'a> Drop for CallbackChainNode<'a> {

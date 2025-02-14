@@ -184,7 +184,7 @@ fn nic_init_begin(pci_function: PciFunction) -> Nic {
     // start the nic initialization process
     regs.csr0().write(NicCsr0::from_fields(NicCsr0Fields {
         init: true,
-        start: false,
+        start: true,
         stop: false,
         transmit_demand: false,
         tx_on: true,
@@ -214,13 +214,19 @@ fn nic_init_begin(pci_function: PciFunction) -> Nic {
 }
 
 pub async fn nic_init_one(pci_function: PciFunction) {
+    // begin initialization of the nic. this will tell the nic to start pulling the information from the initialization block.
     let nic = nic_init_begin(pci_function);
 
+    // wait for the nic to finish initializing.
     nic.wait_for_init_done().await;
 
-    println!("nic init done");
+    // TEST
+    nic.unmask_rx_interrupts();
+    nic.unmask_tx_interrupts();
 
     sleep_forever().await;
+
+    println!("done sleeping");
 }
 
 fn nic_interrupt_handler(shared: &NicIrqShared) {
@@ -234,9 +240,24 @@ fn nic_interrupt_handler(shared: &NicIrqShared) {
             reg.set_init_done_interrupt_mask(true);
         });
     }
+    if csr0.rx_interrupt() {
+        println!("rx interrupt!!!");
+        regs.csr3().modify(|reg| {
+            // re-mask this interrupt to avoid being stuck on it, since it is level triggered.
+            reg.set_rx_interrupt_mask(true);
+        });
+    }
+    if csr0.tx_interrupt() {
+        println!("tx interrupt!!!");
+        regs.csr3().modify(|reg| {
+            // re-mask this interrupt to avoid being stuck on it, since it is level triggered.
+            reg.set_tx_interrupt_mask(true);
+        });
+    }
 }
 
 /// rx and tx rings for the nic.
+#[derive(Debug)]
 pub struct NicRings {
     /// the rx buffers used by the nic. this fields is not really used, but we need to keep the memory allocated, so we store it here.
     _rx_bufs: RxRingBufs,
@@ -333,6 +354,7 @@ impl NicRings {
     }
 }
 
+#[derive(Debug)]
 pub struct Nic {
     /// the nic's pci function.
     pci_function: PciFunction,
@@ -354,6 +376,18 @@ impl Nic {
         NicWaitForInitDone {
             shared: self.shared.clone(),
         }
+    }
+    fn unmask_rx_interrupts(&self) {
+        let mut regs = self.shared.regs.lock();
+        regs.csr3().modify(|reg| {
+            reg.set_rx_interrupt_mask(false);
+        });
+    }
+    fn unmask_tx_interrupts(&self) {
+        let mut regs = self.shared.regs.lock();
+        regs.csr3().modify(|reg| {
+            reg.set_tx_interrupt_mask(false);
+        });
     }
 }
 
@@ -387,24 +421,31 @@ impl Future for NicWaitForInitDone {
 }
 
 #[repr(transparent)]
+#[derive(Debug)]
 struct NicBuf([u8; NIC_BUF_SIZE]);
 
 #[repr(transparent)]
+#[derive(Debug)]
 struct RxRing {
     descs: [RxDesc; NIC_RX_RING_SIZE],
 }
 #[repr(transparent)]
+#[derive(Debug)]
 struct TxRing {
     descs: [TxDesc; NIC_RX_RING_SIZE],
 }
 
+#[derive(Debug)]
 struct RxRingBufs([Pin<Box<NicBuf>>; NIC_RX_RING_SIZE]);
+#[derive(Debug)]
 struct TxRingBufs([Pin<Box<NicBuf>>; NIC_TX_RING_SIZE]);
 
 #[repr(transparent)]
+#[derive(Debug)]
 pub struct EthAddr(pub [u8; ETH_ADDR_LEN]);
 
 #[repr(C)]
+#[derive(Debug)]
 struct InitBlock {
     pub mode: NicMode,
     pub rx_ring_entries_amount: RingEntriesAmount,
@@ -457,6 +498,7 @@ impl InitBlock {
 const_assert_eq!(size_of::<InitBlock>(), 7 * 4);
 
 #[repr(C)]
+#[derive(Debug)]
 struct RxDesc {
     pub buf_addr: u32,
     pub status1: RxDescStatus1,
@@ -468,6 +510,7 @@ struct RxDesc {
 const_assert_eq!(size_of::<RxDesc>(), 4 * 4);
 
 #[repr(C)]
+#[derive(Debug)]
 struct TxDesc {
     pub buf_addr: u32,
     pub status1: TxDescStatus1,
