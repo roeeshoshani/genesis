@@ -74,6 +74,8 @@ fn gdb() -> Result<()> {
 fn run() -> Result<()> {
     build()?;
     run!(
+        // run as root because we create a tap
+        "sudo",
         "qemu-system-mipsel",
         // use the malta machine
         "-M",
@@ -96,6 +98,12 @@ fn run() -> Result<()> {
         // use 256 megabytes of ram
         "-m",
         "256M",
+        // create a tap netdevice on the host
+        "-netdev",
+        "tap,id=net0,ifname=tapvm,script=no,downscript=no",
+        // attach the tap that was created on the host to a pcnet32 net device in the guest
+        "-device",
+        "pcnet,netdev=net0",
         // gdb stub on tcp port 1234
         "-s",
     )?;
