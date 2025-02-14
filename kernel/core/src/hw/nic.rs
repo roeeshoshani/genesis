@@ -8,7 +8,7 @@ use core::{
 
 use alloc::{boxed::Box, sync::Arc};
 use bitpiece::*;
-use hal::mem::VirtAddr;
+use hal::mem::{PhysAddr, VirtAddr};
 use static_assertions::const_assert_eq;
 use volatile::{
     access::{Access, ReadOnly, ReadWrite},
@@ -245,32 +245,25 @@ fn nic_interrupt_handler(shared: &NicIrqShared) {
 /// rx and tx rings for the nic.
 #[derive(Debug)]
 pub struct NicRings {
-    /// the rx buffers used by the nic. this fields is not really used, but we need to keep the memory allocated, so we store it here.
-    _rx_bufs: RxRingBufs,
-
-    /// the tx buffers used by the nic. this fields is not really used, but we need to keep the memory allocated, so we store it here.
-    _tx_bufs: TxRingBufs,
-
     /// the nic's rx ring.
-    rx_ring: Pin<Box<RxRing>>,
+    rx_ring: RxRing,
 
     /// the nic's tx ring.
-    tx_ring: Pin<Box<TxRing>>,
+    tx_ring: TxRing,
 }
 impl NicRings {
     /// allocates new rx and tx rings.
     pub fn new() -> Self {
         // allocate buffers for rx descriptors
-        let mut rx_bufs = RxRingBufs(core::array::from_fn(|_| {
-            Box::pin(NicBuf([0; NIC_BUF_SIZE]))
+        let rx_bufs = RxRingBufs(core::array::from_fn(|_| {
+            NicBufPtr(Box::pin(NicBuf([0; NIC_BUF_SIZE])))
         }));
 
         // build a ring of rx descriptors
-        let rx_ring = Box::pin(RxRing {
-            descs: core::array::from_fn(|i| {
-                let buf = &mut *rx_bufs.0[i];
-                let buf_virt_addr = VirtAddr(buf as *mut NicBuf as usize);
-                let buf_phys_addr = buf_virt_addr.kseg_cachable_phys_addr().unwrap();
+        let rx_ring = RxRing {
+            cursor: 0,
+            descs_cachable: Box::pin(core::array::from_fn(|i| {
+                let buf_phys_addr = rx_bufs.0[i].phys_addr();
                 RxDesc {
                     buf_addr: buf_phys_addr.0 as u32,
                     status1: RxDescStatus1::from_fields(RxDescStatus1Fields {
@@ -291,20 +284,20 @@ impl NicRings {
                     status2: RxDescStatus2::zeroes(),
                     reserved: BitPiece::zeroes(),
                 }
-            }),
-        });
+            })),
+            bufs: rx_bufs,
+        };
 
         // allocate buffers for tx descriptors
-        let mut tx_bufs = TxRingBufs(core::array::from_fn(|_| {
-            Box::pin(NicBuf([0; NIC_BUF_SIZE]))
+        let tx_bufs = TxRingBufs(core::array::from_fn(|_| {
+            NicBufPtr(Box::pin(NicBuf([0; NIC_BUF_SIZE])))
         }));
 
         // build a ring of tx descriptors
-        let tx_ring = Box::pin(TxRing {
-            descs: core::array::from_fn(|i| {
-                let buf = &mut *tx_bufs.0[i];
-                let buf_virt_addr = VirtAddr(buf as *mut NicBuf as usize);
-                let buf_phys_addr = buf_virt_addr.kseg_cachable_phys_addr().unwrap();
+        let tx_ring = TxRing {
+            cursor: 0,
+            descs_cachable: Box::pin(core::array::from_fn(|i| {
+                let buf_phys_addr = tx_bufs.0[i].phys_addr();
                 TxDesc {
                     buf_addr: buf_phys_addr.0 as u32,
                     status1: TxDescStatus1::from_fields(TxDescStatus1Fields {
@@ -328,15 +321,11 @@ impl NicRings {
                     status2: TxDescStatus2::zeroes(),
                     reserved: BitPiece::zeroes(),
                 }
-            }),
-        });
+            })),
+            bufs: tx_bufs,
+        };
 
-        Self {
-            _rx_bufs: rx_bufs,
-            _tx_bufs: tx_bufs,
-            rx_ring,
-            tx_ring,
-        }
+        Self { rx_ring, tx_ring }
     }
 }
 
@@ -361,8 +350,37 @@ impl Nic {
     fn wait_for_init_done(&self) -> NicWaitForInitDone {
         NicWaitForInitDone { nic: self }
     }
+
+    /// tries to clear a single rx desc. returns whether any descriptor was cleared.
+    fn clear_one_rx_desc(&mut self) -> bool {
+        let ring = &mut self.rings.rx_ring;
+
+        let cursor = ring.cursor;
+
+        // fetch the current descriptor
+        let desc: &mut RxDesc = &mut ring.descs_mut()[cursor];
+
+        if desc.status1.is_owned_by_nic() {
+            // descriptor is still owned by nic, no data available
+            return false;
+        }
+
+        // nic returned ownership over the descriptor to us after filling it with data.
+        let len = desc.status2.msg_len().get() as usize;
+        let data = ring.bufs.0[cursor].data();
+        println!("{:x?}", &data.0[..len]);
+
+        // tell the nic that it can re-use this buffer
+        let desc: &mut RxDesc = &mut ring.descs_mut()[cursor];
+        desc.status1.set_is_owned_by_nic(true);
+
+        // advance our cursor to the next descriptor
+        ring.cursor = (ring.cursor + 1) % NIC_RX_RING_SIZE;
+
+        true
+    }
     fn clear_rx_ring(&mut self) {
-        println!("cleaning rx ring");
+        while self.clear_one_rx_desc() {}
     }
     fn clear_tx_ring(&mut self) {}
     fn wait_for_rx_tx_interrupts(&self) -> NicWaitForRxTxInterrupts {
@@ -443,21 +461,82 @@ impl<'a> Future for NicWaitForInitDone<'a> {
 #[derive(Debug)]
 struct NicBuf([u8; NIC_BUF_SIZE]);
 
-#[repr(transparent)]
 #[derive(Debug)]
 struct RxRing {
-    descs: [RxDesc; NIC_RX_RING_SIZE],
+    /// the index to the current descriptor in the ring.
+    cursor: usize,
+
+    /// a cachable version of the descriptors. should not be accessed directly.
+    descs_cachable: Pin<Box<[RxDesc; NIC_RX_RING_SIZE]>>,
+
+    /// the buffers of this ring.
+    bufs: RxRingBufs,
 }
-#[repr(transparent)]
+impl RxRing {
+    pub fn descs_mut(&mut self) -> &mut [RxDesc; NIC_RX_RING_SIZE] {
+        let addr = self
+            .descs_cachable
+            .phys_addr()
+            .kseg_uncachable_addr()
+            .unwrap();
+        unsafe {
+            // SAFETY: this address is valid, we just changed it from a cachable address to an uncachable one.
+            addr.as_mut()
+        }
+    }
+}
 #[derive(Debug)]
 struct TxRing {
-    descs: [TxDesc; NIC_RX_RING_SIZE],
+    /// the index to the current descriptor in the ring.
+    cursor: usize,
+
+    /// a cachable version of the descriptors. should not be accessed directly.
+    descs_cachable: Pin<Box<[TxDesc; NIC_TX_RING_SIZE]>>,
+
+    /// the buffers of this ring.
+    bufs: TxRingBufs,
+}
+impl TxRing {
+    pub fn descs_mut(&mut self) -> &mut [RxDesc; NIC_RX_RING_SIZE] {
+        let addr = self
+            .descs_cachable
+            .phys_addr()
+            .kseg_uncachable_addr()
+            .unwrap();
+        unsafe {
+            // SAFETY: this address is valid, we just changed it from a cachable address to an uncachable one.
+            addr.as_mut()
+        }
+    }
 }
 
 #[derive(Debug)]
-struct RxRingBufs([Pin<Box<NicBuf>>; NIC_RX_RING_SIZE]);
+struct NicBufPtr(Pin<Box<NicBuf>>);
+impl NicBufPtr {
+    pub fn phys_addr(&self) -> PhysAddr {
+        self.0.phys_addr()
+    }
+    pub fn data(&self) -> &NicBuf {
+        let addr = self.phys_addr().kseg_uncachable_addr().unwrap();
+        unsafe {
+            // SAFETY: this address is valid, we just changed it from a cachable address to an uncachable one.
+            addr.as_ref()
+        }
+    }
+    pub fn data_mut(&mut self) -> &mut NicBuf {
+        let addr = self.phys_addr().kseg_uncachable_addr().unwrap();
+        unsafe {
+            // SAFETY: this address is valid, we just changed it from a cachable address to an uncachable one.
+            addr.as_mut()
+        }
+    }
+}
+
 #[derive(Debug)]
-struct TxRingBufs([Pin<Box<NicBuf>>; NIC_TX_RING_SIZE]);
+struct RxRingBufs([NicBufPtr; NIC_RX_RING_SIZE]);
+
+#[derive(Debug)]
+struct TxRingBufs([NicBufPtr; NIC_TX_RING_SIZE]);
 
 #[repr(transparent)]
 #[derive(Debug)]
@@ -507,8 +586,8 @@ impl InitBlock {
             phys_addr: NIC_ETH_ADDR,
             reserved: BitPiece::zeroes(),
             logical_addr_filter: [0u8; NIC_LOGICAL_ADDR_FILTER_SIZE],
-            rx_ring_addr: rings.rx_ring.phys_addr().0 as u32,
-            tx_ring_addr: rings.tx_ring.phys_addr().0 as u32,
+            rx_ring_addr: rings.rx_ring.descs_cachable.phys_addr().0 as u32,
+            tx_ring_addr: rings.tx_ring.descs_cachable.phys_addr().0 as u32,
         }
     }
 }

@@ -9,7 +9,7 @@ use core::{
 
 use alloc::{boxed::Box, sync::Arc, task::Wake, vec::Vec};
 
-use crate::sync::{IrqLock, NonIrqLock};
+use crate::sync::NonIrqLock;
 
 pub struct Task {
     should_be_polled: AtomicBool,
