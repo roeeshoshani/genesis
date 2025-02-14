@@ -8,7 +8,10 @@ extern crate alloc;
 use core::panic::PanicInfo;
 use executor::EXECUTOR;
 use hw::{
-    interrupts::{interrupts_disable, interrupts_enable, interrupts_init, wait_for_interrupt},
+    interrupts::{
+        are_interrupts_enabled, interrupts_disable, interrupts_enable, interrupts_init,
+        wait_for_interrupt,
+    },
     nic::nic_task,
     pci::pci_init,
     uart::{uart_init, uart_task},
@@ -49,6 +52,7 @@ fn main_loop() -> ! {
         if poll_executor() {
             break;
         }
+        assert!(are_interrupts_enabled());
         wait_for_interrupt();
     }
     todo!("shutdown the device");
