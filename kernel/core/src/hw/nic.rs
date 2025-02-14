@@ -369,7 +369,10 @@ impl Nic {
     }
     fn clear_tx_ring(&mut self) {}
     fn wait_for_rx_tx_interrupts(&self) -> NicWaitForRxTxInterrupts {
-        NicWaitForRxTxInterrupts { nic: self }
+        NicWaitForRxTxInterrupts {
+            nic: self,
+            is_first_poll: true,
+        }
     }
     async fn main_loop(&mut self) {
         loop {
@@ -383,24 +386,28 @@ impl Nic {
 #[must_use]
 struct NicWaitForRxTxInterrupts<'a> {
     nic: &'a Nic,
+    is_first_poll: bool,
 }
 impl<'a> Future for NicWaitForRxTxInterrupts<'a> {
     type Output = ();
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut regs = self.nic.shared.regs.lock();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.is_first_poll {
+            // on the first time we are being polled, register for interrupts
+            let mut regs = self.nic.shared.regs.lock();
 
-        // poll to see if an interrupt is already pending
-        if regs.csr0().read().rx_interrupt() || regs.csr0().read().tx_interrupt() {
-            Poll::Ready(())
-        } else {
-            // no interrupt yet, wait for an interrupt.
             self.nic
                 .shared
                 .rx_tx_interrupt_event
                 .listen(cx.waker().clone());
             regs.enable_rx_tx_interrupts();
+
+            self.is_first_poll = false;
+
             Poll::Pending
+        } else {
+            // if we are polled a second time, it means we were woken up by the event, so we are done waiting
+            Poll::Ready(())
         }
     }
 }
