@@ -163,6 +163,21 @@ fn nic_init_begin(pci_function: PciFunction) -> Nic {
         init_block_addr_high: ((init_block_phys_addr.0 >> 16) & 0xffff) as u16,
     }));
 
+    // initially, disable all kinds of interrupts.
+    //
+    // specific interrupts will be enabled on demand once we start waiting for them.
+    //
+    // this helps us prevent the nic from storming the cpu with interrupts, since pci interrupts are level triggered and if not
+    // handled properly can spin forever.
+    regs.csr3().modify(|reg: &mut NicCsr3| {
+        reg.set_init_done_interrupt_mask(true);
+        reg.set_tx_interrupt_mask(true);
+        reg.set_rx_interrupt_mask(true);
+        reg.set_mem_err_interrupt_mask(true);
+        reg.set_missed_frame_interrupt_mask(true);
+        reg.set_tx_timeout_err_interrupt_mask(true);
+    });
+
     // start the nic initialization process
     regs.csr0().write(NicCsr0::from_fields(NicCsr0Fields {
         init: true,
@@ -333,16 +348,6 @@ pub struct Nic {
     interrupt_handler_callback_node: CallbackChainNode<'static>,
 }
 impl Nic {
-    fn set_interrupts_enabled(&self, enabled: bool) {
-        let mut regs = self.shared.regs.lock();
-        regs.set_interrupts_enabled(enabled);
-    }
-    fn enable_interrupts(&self) {
-        self.set_interrupts_enabled(true);
-    }
-    fn disable_interrupts(&self) {
-        self.set_interrupts_enabled(false);
-    }
     fn wait_for_init_done(&self) -> NicWaitForInitDone {
         NicWaitForInitDone {
             shared: self.shared.clone(),
