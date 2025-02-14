@@ -225,8 +225,6 @@ pub async fn nic_init_one(pci_function: PciFunction) {
     nic.unmask_tx_interrupts();
 
     sleep_forever().await;
-
-    println!("done sleeping");
 }
 
 fn nic_interrupt_handler(shared: &NicIrqShared) {
