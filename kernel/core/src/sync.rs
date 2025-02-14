@@ -94,6 +94,7 @@ impl<T> Mutex<T> {
 unsafe impl<T> Send for Mutex<T> {}
 unsafe impl<T> Sync for Mutex<T> {}
 
+#[must_use]
 pub struct MutexLock<'a, T> {
     mutex: &'a Mutex<T>,
     already_registered_to_unlock_event: bool,

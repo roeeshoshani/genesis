@@ -130,6 +130,7 @@ pub fn uart_read_byte() -> UartReadByte {
     UartReadByte
 }
 
+#[must_use]
 pub struct UartReadByte;
 impl Future for UartReadByte {
     type Output = u8;

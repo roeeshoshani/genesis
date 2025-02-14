@@ -86,6 +86,7 @@ fn nic_init_begin(pci_function: PciFunction) -> Nic {
     let shared = Arc::new(NicIrqShared {
         regs: IrqLock::new(regs_raw),
         init_done_event: AsyncEvent::new(),
+        rx_tx_interrupt_event: AsyncEvent::new(),
     });
 
     // spawn the irq handler.
@@ -215,16 +216,13 @@ fn nic_init_begin(pci_function: PciFunction) -> Nic {
 
 pub async fn nic_init_one(pci_function: PciFunction) {
     // begin initialization of the nic. this will tell the nic to start pulling the information from the initialization block.
-    let nic = nic_init_begin(pci_function);
+    let mut nic = nic_init_begin(pci_function);
 
     // wait for the nic to finish initializing.
     nic.wait_for_init_done().await;
 
-    // TEST
-    nic.unmask_rx_interrupts();
-    nic.unmask_tx_interrupts();
-
-    sleep_forever().await;
+    // run the nic's main loop
+    nic.main_loop().await;
 }
 
 fn nic_interrupt_handler(shared: &NicIrqShared) {
@@ -238,20 +236,13 @@ fn nic_interrupt_handler(shared: &NicIrqShared) {
             reg.set_init_done_interrupt_mask(true);
         });
     }
-    if csr0.rx_interrupt() {
-        println!("rx interrupt!!!");
-        regs.csr3().modify(|reg| {
-            // re-mask this interrupt to avoid being stuck on it, since it is level triggered.
-            reg.set_rx_interrupt_mask(true);
-        });
+    if csr0.rx_interrupt() || csr0.tx_interrupt() {
+        shared.rx_tx_interrupt_event.trigger();
+        regs.disable_rx_tx_interrupts();
     }
-    if csr0.tx_interrupt() {
-        println!("tx interrupt!!!");
-        regs.csr3().modify(|reg| {
-            // re-mask this interrupt to avoid being stuck on it, since it is level triggered.
-            reg.set_tx_interrupt_mask(true);
-        });
-    }
+
+    // write back the value that we got from csr0 to clear all pending interrupt bits.
+    regs.csr0().write(csr0)
 }
 
 /// rx and tx rings for the nic.
@@ -371,32 +362,58 @@ pub struct Nic {
 }
 impl Nic {
     fn wait_for_init_done(&self) -> NicWaitForInitDone {
-        NicWaitForInitDone {
-            shared: self.shared.clone(),
+        NicWaitForInitDone { nic: self }
+    }
+    fn clear_rx_ring(&mut self) {
+        println!("cleaning rx ring");
+    }
+    fn clear_tx_ring(&mut self) {}
+    fn wait_for_rx_tx_interrupts(&self) -> NicWaitForRxTxInterrupts {
+        NicWaitForRxTxInterrupts { nic: self }
+    }
+    async fn main_loop(&mut self) {
+        loop {
+            self.clear_rx_ring();
+            self.clear_tx_ring();
+            self.wait_for_rx_tx_interrupts().await;
         }
-    }
-    fn unmask_rx_interrupts(&self) {
-        let mut regs = self.shared.regs.lock();
-        regs.csr3().modify(|reg| {
-            reg.set_rx_interrupt_mask(false);
-        });
-    }
-    fn unmask_tx_interrupts(&self) {
-        let mut regs = self.shared.regs.lock();
-        regs.csr3().modify(|reg| {
-            reg.set_tx_interrupt_mask(false);
-        });
     }
 }
 
-struct NicWaitForInitDone {
-    shared: Arc<NicIrqShared>,
+#[must_use]
+struct NicWaitForRxTxInterrupts<'a> {
+    nic: &'a Nic,
 }
-impl Future for NicWaitForInitDone {
+impl<'a> Future for NicWaitForRxTxInterrupts<'a> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut regs = self.shared.regs.lock();
+        let mut regs = self.nic.shared.regs.lock();
+
+        // poll to see if an interrupt is already pending
+        if regs.csr0().read().rx_interrupt() || regs.csr0().read().tx_interrupt() {
+            Poll::Ready(())
+        } else {
+            // no interrupt yet, wait for an interrupt.
+            self.nic
+                .shared
+                .rx_tx_interrupt_event
+                .listen(cx.waker().clone());
+            regs.enable_rx_tx_interrupts();
+            Poll::Pending
+        }
+    }
+}
+
+#[must_use]
+struct NicWaitForInitDone<'a> {
+    nic: &'a Nic,
+}
+impl<'a> Future for NicWaitForInitDone<'a> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut regs = self.nic.shared.regs.lock();
 
         // try checking if the nic signaled to us that it is done initializing.
         if regs.csr0().read().initialization_done() {
@@ -404,7 +421,7 @@ impl Future for NicWaitForInitDone {
         } else {
             // nic is not finished initializing yet, wait for it to finish.
             // first register for the initialization done event.
-            self.shared.init_done_event.listen(cx.waker().clone());
+            self.nic.shared.init_done_event.listen(cx.waker().clone());
 
             // now unmask the initialization done interrupt
             regs.csr3().modify(|reg| {
@@ -615,6 +632,7 @@ impl RingEntriesAmountVal {
 pub struct NicIrqShared {
     pub regs: IrqLock<NicRegs>,
     pub init_done_event: AsyncEvent,
+    pub rx_tx_interrupt_event: AsyncEvent,
 }
 
 #[derive(Debug)]
@@ -748,17 +766,17 @@ impl NicRegs {
     pub fn bcr20(&mut self) -> NicBcr<NicBcr20> {
         self.bcr(20)
     }
-
-    fn set_interrupts_enabled(&mut self, enabled: bool) {
-        self.csr0().modify(|reg| {
-            reg.set_interrupts_enabled(enabled);
+    fn set_rx_tx_interrupts_masked(&mut self, are_masked: bool) {
+        self.csr3().modify(|reg| {
+            reg.set_rx_interrupt_mask(are_masked);
+            reg.set_tx_interrupt_mask(are_masked);
         });
     }
-    fn enable_interrupts(&mut self) {
-        self.set_interrupts_enabled(true);
+    fn enable_rx_tx_interrupts(&mut self) {
+        self.set_rx_tx_interrupts_masked(false);
     }
-    fn disable_interrupts(&mut self) {
-        self.set_interrupts_enabled(false);
+    fn disable_rx_tx_interrupts(&mut self) {
+        self.set_rx_tx_interrupts_masked(true);
     }
 }
 
