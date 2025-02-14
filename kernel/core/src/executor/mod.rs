@@ -102,7 +102,7 @@ impl Executor {
 pub static EXECUTOR: NonIrqLock<Executor> = NonIrqLock::new(Executor::new());
 
 pub struct SleepForever;
-pub async fn sleep_forever() -> SleepForever {
+pub fn sleep_forever() -> SleepForever {
     SleepForever
 }
 impl Future for SleepForever {
