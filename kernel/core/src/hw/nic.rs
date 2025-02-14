@@ -144,6 +144,18 @@ fn nic_init_begin(pci_function: PciFunction) -> Nic {
         init_block_addr_high: ((init_block_phys_addr.0 >> 16) & 0xffff) as u16,
     }));
 
+    // register an interrupt handler before starting the initialization process, since the initialization process raises an
+    // interrupt, and we want to properly handle it.
+    let regs = NicRegs(Arc::new(IrqLock::new(regs_inner)));
+    let interrupt_handler_callback_node = pci_interrupt_handler_register(NIC_PCI_IRQ_NUM, {
+        let regs = regs.clone();
+        move || {
+            nic_interrupt_handler(&regs);
+        }
+    });
+
+    let mut regs_inner = regs.0.lock();
+
     // start the nic initialization process
     regs_inner.csr0().write(NicCsr0::from_fields(NicCsr0Fields {
         init: true,
@@ -152,7 +164,7 @@ fn nic_init_begin(pci_function: PciFunction) -> Nic {
         transmit_demand: false,
         tx_on: true,
         rx_on: true,
-        interrupts_enabled: false,
+        interrupts_enabled: true,
         interrupt_pending: false,
         initialization_done: false,
         tx_interrupt: true,
@@ -164,16 +176,8 @@ fn nic_init_begin(pci_function: PciFunction) -> Nic {
         any_err: false,
     }));
 
-    let regs = NicRegs(Arc::new(IrqLock::new(regs_inner)));
-
-    let interrupt_handler_callback_node = pci_interrupt_handler_register(NIC_PCI_IRQ_NUM, {
-        let regs = regs.clone();
-        move || {
-            nic_interrupt_handler(&regs);
-        }
-    });
-
     drop(pci_function_inner);
+    drop(regs_inner);
 
     Nic {
         pci_function,
