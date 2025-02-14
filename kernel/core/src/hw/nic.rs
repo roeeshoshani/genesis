@@ -17,9 +17,12 @@ use volatile::{
 
 use crate::{
     executor::{async_event::AsyncEvent, sleep_forever},
-    hw::pci::{
-        pci_interrupt_handler_register, PciBarKind, PciConfigRegCommand, PciConfigRegCommandFields,
-        PciInterruptPin, PciIrqNum,
+    hw::{
+        interrupts::are_interrupts_enabled,
+        pci::{
+            pci_interrupt_handler_register, PciBarKind, PciConfigRegCommand,
+            PciConfigRegCommandFields, PciInterruptPin, PciIrqNum,
+        },
     },
     mem::phys_alloc::BoxPhysAddr,
     println,
@@ -226,12 +229,11 @@ fn nic_interrupt_handler(shared: &NicIrqShared) {
 
     if csr0.initialization_done() {
         shared.init_done_event.trigger();
+        regs.csr3().modify(|reg| {
+            // re-mask this interrupt to avoid being stuck on it, since it is level triggered.
+            reg.set_init_done_interrupt_mask(true);
+        });
     }
-
-    // csr0 contains pending interrupt bits. such bits are cleared by writing a 1 bit to them. to clear all bits at once,
-    // we can just write back the value that we read from csr0, since it will contain 1 bits for all interrupt bits that are
-    // currently pending.
-    regs.csr0().write(csr0);
 }
 
 /// rx and tx rings for the nic.
@@ -362,19 +364,23 @@ impl Future for NicWaitForInitDone {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // start listening for the init done event before polling since nic interrupts are edge triggered due to the fact that
-        // we clear pending interrupt bits inside of our interrupt handler.
-        let mut listener_handle = self.shared.init_done_event.listen(cx.waker().clone());
-
         let mut regs = self.shared.regs.lock();
 
         // try checking if the nic signaled to us that it is done initializing.
         if regs.csr0().read().initialization_done() {
-            // the nic is finished initialization, so we don't want to wait for the initialization done event anymore.
-            listener_handle.stop_listening();
             Poll::Ready(())
         } else {
             // nic is not finished initializing yet, wait for it to finish.
+            // first register for the initialization done event.
+            self.shared.init_done_event.listen(cx.waker().clone());
+
+            // now unmask the initialization done interrupt
+            regs.csr3().modify(|reg| {
+                reg.set_init_done_interrupt_mask(false);
+            });
+
+            // sleep until we are woken by the event
+            drop(regs);
             Poll::Pending
         }
     }
