@@ -100,7 +100,7 @@ fn run() -> Result<()> {
         "256M",
         // create a tap netdevice on the host
         "-netdev",
-        "tap,id=net0,ifname=tapvm,script=no,downscript=no",
+        "tap,id=net0,ifname=tapvm,script=./scripts/tap_ifup.sh,downscript=no",
         // attach the tap that was created on the host to a pcnet32 net device in the guest
         "-device",
         "pcnet,netdev=net0",
