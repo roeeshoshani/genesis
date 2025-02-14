@@ -1,4 +1,7 @@
-use core::arch::{asm, global_asm};
+use core::{
+    arch::{asm, global_asm},
+    sync::atomic::AtomicUsize,
+};
 
 use bit_field::BitField;
 use bitpiece::*;
@@ -39,45 +42,25 @@ pub fn is_in_interrupt() -> bool {
     Cp0RegStatus::read().exception_level() == CpuExceptionLevel::ExceptionLevel
 }
 
-#[derive(Clone)]
-pub struct InterruptsPrevState {
-    pub were_enabled: bool,
-}
+// TODO: make this percpu
+static CUR_CPU_IRQ_DISABLE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-/// disables interrupts and returns the previous state of the interrupts.
-pub fn interrupts_save() -> InterruptsPrevState {
-    let mut status = Cp0RegStatus::read();
-
-    let prev_state = InterruptsPrevState {
-        were_enabled: status.are_interrupts_enabled(),
-    };
-
-    status.set_are_interrupts_enabled(false);
-    Cp0RegStatus::write(status);
-
-    prev_state
-}
-
-/// restores interrupts to their previous state
-pub fn interrupts_restore(prev_state: InterruptsPrevState) {
-    let mut status = Cp0RegStatus::read();
-    status.set_are_interrupts_enabled(prev_state.were_enabled);
-    Cp0RegStatus::write(status);
-}
-
-pub struct InterruptsDisabledGuard {
-    prev_state: InterruptsPrevState,
-}
+pub struct InterruptsDisabledGuard;
 impl InterruptsDisabledGuard {
     pub fn new() -> Self {
-        Self {
-            prev_state: interrupts_save(),
+        let prev_value =
+            CUR_CPU_IRQ_DISABLE_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if prev_value == 0 {
+            interrupts_disable();
         }
+        Self
     }
 }
 impl Drop for InterruptsDisabledGuard {
     fn drop(&mut self) {
-        interrupts_restore(self.prev_state.clone());
+        if CUR_CPU_IRQ_DISABLE_COUNT.fetch_sub(1, core::sync::atomic::Ordering::Relaxed) == 1 {
+            interrupts_enable();
+        }
     }
 }
 
