@@ -16,13 +16,10 @@ use volatile::{
 };
 
 use crate::{
-    executor::{async_event::AsyncEvent, sleep_forever},
-    hw::{
-        interrupts::are_interrupts_enabled,
-        pci::{
-            pci_interrupt_handler_register, PciBarKind, PciConfigRegCommand,
-            PciConfigRegCommandFields, PciInterruptPin, PciIrqNum,
-        },
+    executor::async_event::AsyncEvent,
+    hw::pci::{
+        pci_interrupt_handler_register, PciBarKind, PciConfigRegCommand, PciConfigRegCommandFields,
+        PciInterruptPin, PciIrqNum,
     },
     mem::phys_alloc::BoxPhysAddr,
     println,
