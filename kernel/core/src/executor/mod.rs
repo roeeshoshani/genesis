@@ -101,6 +101,14 @@ impl Executor {
 /// this means that it can't be accessed from interrupt context, which means that we can't spawn tasks from interrupt context.
 pub static EXECUTOR: NonIrqLock<Executor> = NonIrqLock::new(Executor::new());
 
+pub fn spawn_task<F>(task: F)
+where
+    F: Future<Output = ()> + 'static + Send,
+{
+    let mut executor = EXECUTOR.lock();
+    executor.spawn(task);
+}
+
 #[must_use]
 pub struct SleepForever;
 pub fn sleep_forever() -> SleepForever {

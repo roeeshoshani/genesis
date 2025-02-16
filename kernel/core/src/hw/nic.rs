@@ -16,7 +16,7 @@ use volatile::{
 };
 
 use crate::{
-    executor::async_event::AsyncEvent,
+    executor::{async_event::AsyncEvent, spawn_task},
     hw::pci::{
         pci_interrupt_handler_register, PciBarKind, PciConfigRegCommand, PciConfigRegCommandFields,
         PciInterruptPin, PciIrqNum,
@@ -60,10 +60,15 @@ pub async fn nic_task() {
         println!("nic not found");
         return;
     };
-    nic_init_one(pci_function.clone()).await;
+    let mut nic = nic_init_one(pci_function.clone()).await;
+
+    loop {
+        let packet = nic.rx_side.recv().await;
+        println!("received: {:x?}", packet);
+    }
 }
 
-fn nic_init_begin(pci_function: PciFunction) -> Nic {
+fn nic_init_begin(pci_function: PciFunction) -> NicInitState {
     let mut pci_function_inner = pci_function.0.lock();
     let bar = &mut pci_function_inner.bars()[0];
     let mapped_bar = bar.map_to_memory();
@@ -203,7 +208,7 @@ fn nic_init_begin(pci_function: PciFunction) -> Nic {
     drop(pci_function_inner);
     drop(regs);
 
-    Nic {
+    NicInitState {
         rings,
         shared,
         init_block,
@@ -211,15 +216,15 @@ fn nic_init_begin(pci_function: PciFunction) -> Nic {
     }
 }
 
-pub async fn nic_init_one(pci_function: PciFunction) {
+pub async fn nic_init_one(pci_function: PciFunction) -> Nic {
     // begin initialization of the nic. this will tell the nic to start pulling the information from the initialization block.
-    let mut nic = nic_init_begin(pci_function);
+    let nic_init_state = nic_init_begin(pci_function);
 
     // wait for the nic to finish initializing.
-    nic.wait_for_init_done().await;
+    nic_init_state.wait_for_init_done().await;
 
-    // run the nic's main loop
-    // nic.main_loop().await;
+    // build the final nic structure once we are done initializing.
+    nic_init_state.build()
 }
 
 fn nic_interrupt_handler(shared: &NicIrqShared) {
@@ -250,10 +255,10 @@ fn nic_interrupt_handler(shared: &NicIrqShared) {
 #[derive(Debug)]
 pub struct NicRings {
     /// the nic's rx ring.
-    rx_ring: RxRing,
+    rx: RxRing,
 
     /// the nic's tx ring.
-    tx_ring: TxRing,
+    tx: TxRing,
 }
 impl NicRings {
     /// allocates new rx and tx rings.
@@ -329,10 +334,14 @@ impl NicRings {
             bufs: tx_bufs,
         };
 
-        Self { rx_ring, tx_ring }
+        Self {
+            rx: rx_ring,
+            tx: tx_ring,
+        }
     }
 }
 
+#[derive(Debug)]
 pub struct RxPacket<'a> {
     buf: &'a [u8],
     desc: &'a mut RxDesc,
@@ -393,7 +402,7 @@ impl NicRxSide {
             .await
     }
 
-    async fn recv(&mut self) -> RxPacket {
+    pub async fn recv(&mut self) -> RxPacket {
         // wait for the current descriptor to stop being owned by the nic, indicating that the nic filled it with data and
         // returned it to us.
         while self.ring.cur_desc().status1.is_owned_by_nic() {
@@ -403,8 +412,67 @@ impl NicRxSide {
     }
 }
 
-#[derive(Debug)]
+pub struct NicTxSide {
+    /// the nic's information shared with the interrupt handler
+    shared: Arc<NicIrqShared>,
+
+    /// the tx ring
+    ring: TxRing,
+
+    // the nic's interrupt handler callback node
+    interrupt_handler_callback_node: Arc<CallbackChainNode<'static>>,
+}
+impl NicTxSide {
+    // fills a single tx descriptor. assumes that the current descriptor is not owned by the nic.
+    fn fill_one_tx_desc(&mut self, packet: &[u8]) {
+        // copy the data to the buffer
+        let buf = &mut self.ring.bufs.0[self.ring.cursor];
+        buf.as_mut().0.copy_from_slice(packet);
+
+        // fill the descriptor
+        let cur_desc = self.ring.cur_desc();
+
+        // set the correct length of the packet
+        cur_desc
+            .status1
+            .set_buf_len_2s_complement(BitPiece::from_bits((packet.len() as u16).wrapping_neg()));
+
+        // move descriptor to nic
+        cur_desc.status1.set_is_owned_by_nic(true);
+
+        // this descriptor is both the start and the end of the packet. jumbo packets are not supported yet.
+        cur_desc.status1.set_start_of_packet(true);
+        cur_desc.status1.set_end_of_packet(true);
+
+        // advance to the next descriptor
+        self.ring.cursor = (self.ring.cursor + 1) % NIC_TX_RING_SIZE;
+    }
+
+    async fn wait_for_tx_interrupt(&self) {
+        self.shared
+            .tx_interrupt_event
+            .wait_prepare(|| {
+                let mut regs = self.shared.regs.lock();
+                regs.enable_tx_interrupts();
+            })
+            .await
+    }
+
+    pub async fn send(&mut self, packet: &[u8]) {
+        while self.ring.cur_desc().status1.is_owned_by_nic() {
+            self.wait_for_tx_interrupt().await
+        }
+        self.fill_one_tx_desc(packet);
+    }
+}
+
 pub struct Nic {
+    pub rx_side: NicRxSide,
+    pub tx_side: NicTxSide,
+}
+
+#[derive(Debug)]
+pub struct NicInitState {
     /// the nic's information shared with the interrupt handler
     shared: Arc<NicIrqShared>,
 
@@ -417,7 +485,7 @@ pub struct Nic {
 
     interrupt_handler_callback_node: CallbackChainNode<'static>,
 }
-impl Nic {
+impl NicInitState {
     async fn wait_for_init_done(&self) {
         self.shared
             .init_done_event
@@ -430,11 +498,27 @@ impl Nic {
             })
             .await
     }
+
+    fn build(self) -> Nic {
+        let interrupt_handler_callback_node = Arc::new(self.interrupt_handler_callback_node);
+        Nic {
+            rx_side: NicRxSide {
+                shared: self.shared.clone(),
+                ring: self.rings.rx,
+                interrupt_handler_callback_node: interrupt_handler_callback_node.clone(),
+            },
+            tx_side: NicTxSide {
+                shared: self.shared,
+                ring: self.rings.tx,
+                interrupt_handler_callback_node,
+            },
+        }
+    }
 }
 
 #[must_use]
 struct NicWaitForInitDone<'a> {
-    nic: &'a Nic,
+    nic: &'a NicInitState,
 }
 impl<'a> Future for NicWaitForInitDone<'a> {
     type Output = ();
@@ -495,12 +579,8 @@ struct TxRing {
     bufs: TxRingBufs,
 }
 impl TxRing {
-    pub fn descs_mut(&mut self) -> &mut [RxDesc; NIC_RX_RING_SIZE] {
-        let addr = self.descs.phys_addr().kseg_uncachable_addr().unwrap();
-        unsafe {
-            // SAFETY: this address is valid, we just changed it from a cachable address to an uncachable one.
-            addr.as_mut()
-        }
+    pub fn cur_desc(&mut self) -> &mut TxDesc {
+        &mut self.descs.as_mut()[self.cursor]
     }
 }
 
@@ -558,8 +638,8 @@ impl InitBlock {
             phys_addr: NIC_ETH_ADDR,
             reserved: BitPiece::zeroes(),
             logical_addr_filter: [0u8; NIC_LOGICAL_ADDR_FILTER_SIZE],
-            rx_ring_addr: rings.rx_ring.descs.phys_addr().0 as u32,
-            tx_ring_addr: rings.tx_ring.descs.phys_addr().0 as u32,
+            rx_ring_addr: rings.rx.descs.phys_addr().0 as u32,
+            tx_ring_addr: rings.tx.descs.phys_addr().0 as u32,
         }
     }
 }
