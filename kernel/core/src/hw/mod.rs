@@ -1,3 +1,4 @@
+pub mod dma;
 pub mod interrupts;
 pub mod nic;
 pub mod pci;

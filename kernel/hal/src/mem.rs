@@ -130,12 +130,12 @@ impl VirtAddr {
     }
 
     /// converts this virtual address to a reference.
-    pub const unsafe fn as_ref<T>(self) -> &'static T {
+    pub const unsafe fn as_ref<'a, T>(self) -> &'a T {
         &*(self.0 as *const T)
     }
 
     /// converts this virtual address to a mutable reference.
-    pub const unsafe fn as_mut<T>(self) -> &'static mut T {
+    pub const unsafe fn as_mut<'a, T>(self) -> &'a mut T {
         &mut *(self.0 as *mut T)
     }
 }

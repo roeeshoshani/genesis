@@ -1,4 +1,7 @@
-use core::task::Waker;
+use core::{
+    future::Future,
+    task::{Poll, Waker},
+};
 
 use alloc::{collections::VecDeque, vec::Vec};
 
@@ -38,6 +41,70 @@ impl AsyncEvent {
         let mut wakers = self.wakers.lock();
         for waker in wakers.drain(..) {
             waker.wake();
+        }
+    }
+
+    pub fn wait(&self) -> AsyncEventWait {
+        AsyncEventWait {
+            event: self,
+            is_first_time: true,
+        }
+    }
+    pub fn wait_prepare<F: Fn()>(&self, prepare: F) -> AsyncEventWaitPrepare<F> {
+        AsyncEventWaitPrepare {
+            event: self,
+            is_first_time: true,
+            prepare,
+        }
+    }
+}
+
+#[must_use]
+pub struct AsyncEventWaitPrepare<'a, F: Fn()> {
+    event: &'a AsyncEvent,
+    is_first_time: bool,
+    prepare: F,
+}
+impl<'a, F: Fn()> Future for AsyncEventWaitPrepare<'a, F> {
+    type Output = ();
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> Poll<Self::Output> {
+        if self.is_first_time {
+            // if this is the first time we are being polled, just register for the event and wait for it to happen
+            self.event.listen(cx.waker().clone());
+
+            (self.prepare)();
+
+            Poll::Pending
+        } else {
+            // if we got polled again after registering, it means that the event was triggered and woke us up.
+            Poll::Ready(())
+        }
+    }
+}
+
+#[must_use]
+pub struct AsyncEventWait<'a> {
+    event: &'a AsyncEvent,
+    is_first_time: bool,
+}
+impl<'a> Future for AsyncEventWait<'a> {
+    type Output = ();
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> Poll<Self::Output> {
+        if self.is_first_time {
+            // if this is the first time we are being polled, just register for the event and wait for it to happen
+            self.event.listen(cx.waker().clone());
+            Poll::Pending
+        } else {
+            // if we got polled again after registering, it means that the event was triggered and woke us up.
+            Poll::Ready(())
         }
     }
 }
