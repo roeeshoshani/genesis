@@ -78,6 +78,12 @@ impl<'a, F: Fn()> Future for AsyncEventWaitPrepare<'a, F> {
 
             (self.prepare)();
 
+            // next time will no longer be the first time we are polled, mark it accordingly
+            unsafe {
+                // SAFETY: we are literally just changing this simple boolean value... no moving out of the value here.
+                self.get_unchecked_mut().is_first_time = false;
+            }
+
             Poll::Pending
         } else {
             // if we got polled again after registering, it means that the event was triggered and woke us up.
@@ -95,12 +101,14 @@ impl<'a> Future for AsyncEventWait<'a> {
     type Output = ();
 
     fn poll(
-        self: core::pin::Pin<&mut Self>,
+        mut self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> Poll<Self::Output> {
         if self.is_first_time {
             // if this is the first time we are being polled, just register for the event and wait for it to happen
             self.event.listen(cx.waker().clone());
+            // next time will no longer be the first time we are polled, mark it accordingly
+            self.is_first_time = false;
             Poll::Pending
         } else {
             // if we got polled again after registering, it means that the event was triggered and woke us up.
