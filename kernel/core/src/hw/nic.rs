@@ -6,7 +6,7 @@ use core::{
     task::{Context, Poll},
 };
 
-use alloc::sync::Arc;
+use alloc::{boxed::Box, sync::Arc};
 use bitpiece::*;
 use hal::mem::VirtAddr;
 use static_assertions::const_assert_eq;
@@ -62,9 +62,17 @@ pub async fn nic_task() {
     };
     let mut nic = nic_init_one(pci_function.clone()).await;
 
+    let mut buf_storage = Box::new(NicBuf::new());
+
     loop {
         let packet = nic.rx_side.recv().await;
         println!("received: {:x?}", packet);
+
+        let tmp_buf = &mut buf_storage.0[..packet.len()];
+        tmp_buf.copy_from_slice(packet.data());
+        tmp_buf[0..6].fill(0x41);
+
+        nic.tx_side.send(tmp_buf).await;
     }
 }
 
@@ -264,9 +272,7 @@ impl NicRings {
     /// allocates new rx and tx rings.
     pub fn new() -> Self {
         // allocate buffers for rx descriptors
-        let rx_bufs = RxRingBufs(core::array::from_fn(|_| {
-            DmaPtr::new(NicBuf([0; NIC_BUF_SIZE]))
-        }));
+        let rx_bufs = RxRingBufs(core::array::from_fn(|_| DmaPtr::new(NicBuf::new())));
 
         // build a ring of rx descriptors
         let rx_ring = RxRing {
@@ -298,9 +304,7 @@ impl NicRings {
         };
 
         // allocate buffers for tx descriptors
-        let tx_bufs = TxRingBufs(core::array::from_fn(|_| {
-            DmaPtr::new(NicBuf([0; NIC_BUF_SIZE]))
-        }));
+        let tx_bufs = TxRingBufs(core::array::from_fn(|_| DmaPtr::new(NicBuf::new())));
 
         // build a ring of tx descriptors
         let tx_ring = TxRing {
@@ -348,6 +352,9 @@ pub struct RxPacket<'a> {
     cursor: &'a mut usize,
 }
 impl<'a> RxPacket<'a> {
+    pub fn len(&self) -> usize {
+        self.buf.len()
+    }
     pub fn data(&self) -> &'a [u8] {
         self.buf
     }
@@ -427,7 +434,7 @@ impl NicTxSide {
     fn fill_one_tx_desc(&mut self, packet: &[u8]) {
         // copy the data to the buffer
         let buf = &mut self.ring.bufs.0[self.ring.cursor];
-        buf.as_mut().0.copy_from_slice(packet);
+        buf.as_mut().0[..packet.len()].copy_from_slice(packet);
 
         // fill the descriptor
         let cur_desc = self.ring.cur_desc();
@@ -549,6 +556,11 @@ impl<'a> Future for NicWaitForInitDone<'a> {
 #[repr(transparent)]
 #[derive(Debug)]
 struct NicBuf([u8; NIC_BUF_SIZE]);
+impl NicBuf {
+    const fn new() -> Self {
+        Self([0u8; NIC_BUF_SIZE])
+    }
+}
 
 #[derive(Debug)]
 struct RxRing {
